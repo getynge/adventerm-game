@@ -7,6 +7,7 @@ mod name_entry;
 mod options;
 mod pause_menu;
 mod save_browser;
+mod seed_entry;
 
 use ratatui::Frame;
 use ratatui::style::Style;
@@ -73,6 +74,16 @@ pub fn render(frame: &mut Frame, app: &App) {
         } => {
             gameplay::render(frame, game, status.text(), &scheme_colors);
             name_entry::render(frame, buffer, &scheme_colors.menu);
+        }
+        Screen::SeedEntry { buffer, status } => {
+            render_main_menu_underlay(
+                frame,
+                app,
+                MainMenuOption::NewGame,
+                status.text(),
+                &scheme_colors.menu,
+            );
+            seed_entry::render(frame, buffer, &scheme_colors.menu);
         }
         Screen::Options { menu, status } => {
             render_main_menu_underlay(frame, app, MainMenuOption::Options, None, &scheme_colors.menu);

@@ -33,6 +33,7 @@ Defined as the [`Screen`](../adventerm/src/app.rs) enum. Variants and the `GameS
 | --- | --- | --- |
 | `MainMenu` | no | Entry point; menu cursor + status |
 | `LoadGame` | no | Browses save files; can delete with confirm |
+| `SeedEntry` | no | Text buffer (≤32 chars) for an optional new-game seed; blank → clock seed |
 | `Playing(GameState)` | yes | Active gameplay |
 | `Paused` | yes (retained) | Overlay on Playing; offers Resume / Save / Quit |
 | `SaveSlotPicker` | yes | Pick existing slot to overwrite, or "+ New save..." |
@@ -44,7 +45,7 @@ Defined as the [`Screen`](../adventerm/src/app.rs) enum. Variants and the `GameS
 Transitions are pattern-matched in `App::handle_*` methods per screen. Triggers:
 
 - **Confirm / Esc / Hotkey** — driven by `BoundAction` lookups via [`input::translate`](../adventerm/src/input.rs)
-- **Char / Backspace / Enter / Esc** — only in `NameEntry`, via [`input::translate_text`](../adventerm/src/input.rs)
+- **Char / Backspace / Enter / Esc** — in `NameEntry` and `SeedEntry`, via [`input::translate_text`](../adventerm/src/input.rs)
 - **Movement / interact** — only in `Playing`; calls into `GameState::move_player`, `quick_move`, `interact`
 
 Status messages on each screen are an enum (`Status::None | Info | Error`) cleared explicitly on transitions — see CLAUDE.md style rule #4.

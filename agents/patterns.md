@@ -68,7 +68,11 @@ Never reimplement filename munging or directory scanning — these helpers alrea
 
 | Need | Use |
 | --- | --- |
-| Tile a renderer should draw at `(x, y)` | `GameState::tile_at` in [game.rs](../adventerm_lib/src/game.rs) |
+| Tile a renderer should draw at `(x, y)` (with player overlay) | `GameState::tile_at` in [game.rs](../adventerm_lib/src/game.rs) |
+| Underlying terrain at `(x, y)` (no player overlay — for memory cells) | `GameState::terrain_at` in [game.rs](../adventerm_lib/src/game.rs) |
+| Is `(x, y)` currently in line of sight | `GameState::is_visible` in [game.rs](../adventerm_lib/src/game.rs) |
+| Has the player ever seen `(x, y)` in this room | `GameState::is_explored` in [game.rs](../adventerm_lib/src/game.rs) |
+| LOS radius constant | `LOS_RANGE` from [los.rs](../adventerm_lib/src/los.rs) |
 | "Press Enter" hint when standing on a door | `GameState::player_on_door` in [game.rs](../adventerm_lib/src/game.rs) |
 | Move the player one tile or slide them | `move_player` / `quick_move` in [game.rs](../adventerm_lib/src/game.rs) |
 | Traverse a door | `interact` in [game.rs](../adventerm_lib/src/game.rs) |

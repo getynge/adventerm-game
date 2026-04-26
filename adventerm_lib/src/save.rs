@@ -6,7 +6,7 @@ use std::time::SystemTime;
 
 use crate::game::GameState;
 
-pub const SAVE_VERSION: u32 = 2;
+pub const SAVE_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Save {
@@ -69,13 +69,14 @@ impl Save {
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, SaveError> {
-        let save: Save = serde_json::from_slice(bytes)?;
+        let mut save: Save = serde_json::from_slice(bytes)?;
         if save.version != SAVE_VERSION {
             return Err(SaveError::UnsupportedVersion {
                 found: save.version,
                 expected: SAVE_VERSION,
             });
         }
+        save.state.refresh_visibility();
         Ok(save)
     }
 }

@@ -35,6 +35,10 @@ pub const PAUSE_MENU_VERTICAL_PAD: u16 = 2;
 pub const NAME_ENTRY_WIDTH: u16 = 44;
 pub const NAME_ENTRY_HEIGHT: u16 = 5;
 
+/// Fixed dimensions for the new-game seed entry popup.
+pub const SEED_ENTRY_WIDTH: u16 = 44;
+pub const SEED_ENTRY_HEIGHT: u16 = 5;
+
 /// Width of the centred main-menu options column.
 pub const MAIN_MENU_OPTIONS_WIDTH: u16 = 14;
 

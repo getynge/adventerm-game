@@ -37,7 +37,15 @@ impl Dungeon {
     pub fn generate(seed: u64) -> Self {
         let mut rng = Rng::new(seed);
         let room_count = rng.range(ROOM_COUNT_MIN, ROOM_COUNT_MAX_EXCL);
+        Self::generate_inner(seed, room_count, rng)
+    }
 
+    pub fn generate_with_room_count(seed: u64, room_count: usize) -> Self {
+        let rng = Rng::new(seed);
+        Self::generate_inner(seed, room_count, rng)
+    }
+
+    fn generate_inner(seed: u64, room_count: usize, mut rng: Rng) -> Self {
         let mut rooms: Vec<Room> = Vec::with_capacity(room_count);
         for i in 0..room_count {
             let w = rng.range(ROOM_WIDTH_MIN, ROOM_WIDTH_MAX_EXCL);

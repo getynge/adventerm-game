@@ -50,11 +50,23 @@ fn render_world(frame: &mut Frame, state: &GameState, area: Rect, colors: &Schem
     for y in off_y..off_y + view_h {
         let mut spans: Vec<Span> = Vec::with_capacity(view_w as usize);
         for x in off_x..off_x + view_w {
-            let (glyph, fg) = match state.tile_at(x as usize, y as usize) {
-                Tile::Player => ('@', colors.world.player),
-                Tile::Door => ('+', colors.world.interactive),
-                Tile::Floor => ('.', colors.world.floor),
-                Tile::Wall => ('#', colors.world.wall),
+            let (tx, ty) = (x as usize, y as usize);
+            let (glyph, fg) = if state.is_visible(tx, ty) {
+                match state.tile_at(tx, ty) {
+                    Tile::Player => ('@', colors.world.player),
+                    Tile::Door => ('+', colors.world.interactive),
+                    Tile::Floor => ('.', colors.world.floor),
+                    Tile::Wall => ('#', colors.world.wall),
+                }
+            } else if state.is_explored(tx, ty) {
+                match state.terrain_at(tx, ty) {
+                    Tile::Door => ('+', colors.world.memory_interactive),
+                    Tile::Floor => ('.', colors.world.memory_floor),
+                    Tile::Wall => ('#', colors.world.memory_wall),
+                    Tile::Player => (' ', world_bg),
+                }
+            } else {
+                (' ', world_bg)
             };
             spans.push(Span::styled(
                 glyph.to_string(),

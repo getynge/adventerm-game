@@ -1,6 +1,9 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::dungeon::{Dungeon, step_inward};
+use crate::los;
 use crate::room::{DoorId, Room, RoomId, TileKind};
 use crate::world::{Direction, Tile};
 
@@ -26,11 +29,24 @@ pub struct DoorEvent {
     pub new_room: RoomId,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct GameState {
     pub dungeon: Dungeon,
     pub current_room: RoomId,
     pub player: (usize, usize),
+    #[serde(default)]
+    pub explored: HashMap<RoomId, Vec<bool>>,
+    #[serde(skip)]
+    visible: Vec<bool>,
+}
+
+impl PartialEq for GameState {
+    fn eq(&self, other: &Self) -> bool {
+        self.dungeon == other.dungeon
+            && self.current_room == other.current_room
+            && self.player == other.player
+            && self.explored == other.explored
+    }
 }
 
 impl GameState {
@@ -41,11 +57,15 @@ impl GameState {
             .room(start_room)
             .first_floor()
             .unwrap_or((0, 0));
-        Self {
+        let mut state = Self {
             dungeon,
             current_room: start_room,
             player,
-        }
+            explored: HashMap::new(),
+            visible: Vec::new(),
+        };
+        state.refresh_visibility();
+        state
     }
 
     pub fn current_room(&self) -> &Room {
@@ -56,11 +76,38 @@ impl GameState {
         if (x, y) == self.player {
             return Tile::Player;
         }
+        self.terrain_at(x, y)
+    }
+
+    /// Underlying terrain at `(x, y)`, ignoring the player overlay. Used by
+    /// the renderer when drawing remembered (out-of-LOS) tiles.
+    pub fn terrain_at(&self, x: usize, y: usize) -> Tile {
         match self.current_room().kind_at(x, y) {
             Some(TileKind::Wall) | None => Tile::Wall,
             Some(TileKind::Floor) => Tile::Floor,
             Some(TileKind::Door(_)) => Tile::Door,
         }
+    }
+
+    pub fn is_visible(&self, x: usize, y: usize) -> bool {
+        let room = self.current_room();
+        if x >= room.width || y >= room.height {
+            return false;
+        }
+        let i = room.idx(x, y);
+        self.visible.get(i).copied().unwrap_or(false)
+    }
+
+    pub fn is_explored(&self, x: usize, y: usize) -> bool {
+        let room = self.current_room();
+        if x >= room.width || y >= room.height {
+            return false;
+        }
+        let i = room.idx(x, y);
+        self.explored
+            .get(&self.current_room)
+            .and_then(|m| m.get(i).copied())
+            .unwrap_or(false)
     }
 
     pub fn player_on_door(&self) -> Option<DoorId> {
@@ -82,6 +129,7 @@ impl GameState {
             return MoveOutcome::Blocked;
         }
         self.player = (nx, ny);
+        self.refresh_visibility();
         MoveOutcome::Moved
     }
 
@@ -107,6 +155,7 @@ impl GameState {
             }
         }
         if moved {
+            self.refresh_visibility();
             MoveOutcome::Moved
         } else {
             MoveOutcome::Blocked
@@ -126,11 +175,38 @@ impl GameState {
         let landing = step_inward(target_door.pos, self.dungeon.room(target_room));
         self.current_room = target_room;
         self.player = landing;
+        self.refresh_visibility();
         Some(DoorEvent {
             from,
             to,
             new_room: target_room,
         })
+    }
+
+    /// Recompute `visible` for the current room and OR it into `explored`.
+    /// Call after any state change that affects what the player can see
+    /// (movement, room transition, post-deserialize rehydration).
+    pub fn refresh_visibility(&mut self) {
+        let room_id = self.current_room;
+        let (width, height, player) = {
+            let room = self.current_room();
+            (room.width, room.height, self.player)
+        };
+        let len = width * height;
+        // Re-borrow the room immutably for the los call.
+        los::compute_visible(self.dungeon.room(room_id), player, &mut self.visible);
+        let memory = self
+            .explored
+            .entry(room_id)
+            .or_insert_with(|| vec![false; len]);
+        if memory.len() != len {
+            memory.resize(len, false);
+        }
+        for (m, v) in memory.iter_mut().zip(self.visible.iter()) {
+            if *v {
+                *m = true;
+            }
+        }
     }
 }
 
@@ -148,6 +224,65 @@ mod tests {
             }
         }
         panic!("no door in starting room — generation invariant broken");
+    }
+
+    #[test]
+    fn player_tile_is_always_visible() {
+        let state = GameState::new_seeded(11);
+        let (px, py) = state.player;
+        assert!(state.is_visible(px, py));
+        assert!(state.is_explored(px, py));
+    }
+
+    #[test]
+    fn explored_persists_after_walking_away() {
+        let mut state = GameState::new_seeded(11);
+        let (px, py) = state.player;
+        // Find any tile in current LOS that is not the player's tile.
+        let room = state.current_room();
+        let mut witness = None;
+        for y in 0..room.height {
+            for x in 0..room.width {
+                if (x, y) != (px, py) && state.is_visible(x, y) {
+                    witness = Some((x, y));
+                    break;
+                }
+            }
+            if witness.is_some() {
+                break;
+            }
+        }
+        let (wx, wy) = witness.expect("at least one tile besides the player should be visible");
+        // Now move some steps; whether or not the witness remains in LOS,
+        // is_explored must stay true.
+        for _ in 0..crate::los::LOS_RANGE + 2 {
+            // Try multiple directions; first successful move is enough.
+            for dir in [Direction::Down, Direction::Up, Direction::Left, Direction::Right] {
+                if state.move_player(dir) == MoveOutcome::Moved {
+                    break;
+                }
+            }
+        }
+        assert!(state.is_explored(wx, wy));
+    }
+
+    #[test]
+    fn room_transition_uses_target_room_explored_map() {
+        let mut state = GameState::new_seeded(17);
+        let (_, door_pos) = find_door_position(&state);
+        state.player = door_pos;
+        state.refresh_visibility();
+        let origin_room = state.current_room;
+        let event = state.interact().expect("door interact should produce event");
+        let dest_room = event.new_room;
+        assert_ne!(origin_room, dest_room);
+        let (px, py) = state.player;
+        // Landing tile is visible AND recorded as explored in the destination room.
+        assert!(state.is_visible(px, py));
+        assert!(state.is_explored(px, py));
+        // Both rooms have entries in the explored map now.
+        assert!(state.explored.contains_key(&origin_room));
+        assert!(state.explored.contains_key(&dest_room));
     }
 
     #[test]

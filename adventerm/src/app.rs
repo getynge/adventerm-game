@@ -9,6 +9,7 @@ use crate::input::{Action, TextInputAction};
 use crate::menu::{MainMenuOption, MenuState, OptionsRow, PauseMenuOption, SaveBrowser, Status};
 
 const MAX_SAVE_NAME_CHARS: usize = 32;
+const MAX_SEED_CHARS: usize = 32;
 
 pub enum Screen {
     MainMenu {
@@ -32,6 +33,10 @@ pub enum Screen {
     },
     NameEntry {
         game: GameState,
+        buffer: String,
+        status: Status,
+    },
+    SeedEntry {
         buffer: String,
         status: Status,
     },
@@ -103,6 +108,12 @@ impl App {
             }
             return;
         }
+        if let Screen::SeedEntry { .. } = self.screen {
+            if let Some(action) = crate::input::translate_text(event) {
+                self.handle_seed_entry(action);
+            }
+            return;
+        }
         if let Screen::RebindCapture { .. } = self.screen {
             self.handle_rebind_capture(event);
             return;
@@ -117,7 +128,10 @@ impl App {
             Screen::Paused { .. } => self.handle_pause_menu(action),
             Screen::SaveSlotPicker { .. } => self.handle_slot_picker(action),
             Screen::Options { .. } => self.handle_options(action),
-            Screen::NameEntry { .. } | Screen::RebindCapture { .. } | Screen::Quit => {}
+            Screen::NameEntry { .. }
+            | Screen::SeedEntry { .. }
+            | Screen::RebindCapture { .. }
+            | Screen::Quit => {}
         }
     }
 
@@ -151,7 +165,10 @@ impl App {
     fn select_main_option(&mut self, option: MainMenuOption) {
         match option {
             MainMenuOption::NewGame => {
-                self.screen = Screen::Playing(GameState::new_seeded(seed_from_clock()));
+                self.screen = Screen::SeedEntry {
+                    buffer: String::new(),
+                    status: Status::None,
+                };
             }
             MainMenuOption::LoadGame => {
                 let saves = self.list_saves();
@@ -355,6 +372,7 @@ impl App {
             | Screen::Paused { status, .. }
             | Screen::SaveSlotPicker { status, .. }
             | Screen::NameEntry { status, .. }
+            | Screen::SeedEntry { status, .. }
             | Screen::Options { status, .. }
             | Screen::RebindCapture { status, .. } => *status = new_status,
             _ => {}
@@ -541,6 +559,34 @@ impl App {
         }
     }
 
+    fn handle_seed_entry(&mut self, action: TextInputAction) {
+        let Screen::SeedEntry { buffer, .. } = &mut self.screen else {
+            return;
+        };
+        match action {
+            TextInputAction::Char(c) => {
+                if !c.is_control() && buffer.chars().count() < MAX_SEED_CHARS {
+                    buffer.push(c);
+                }
+            }
+            TextInputAction::Backspace => {
+                buffer.pop();
+            }
+            TextInputAction::Confirm => {
+                let text = buffer.trim().to_string();
+                let seed = if text.is_empty() {
+                    seed_from_clock()
+                } else {
+                    seed_from_text(&text)
+                };
+                self.screen = Screen::Playing(GameState::new_seeded(seed));
+            }
+            TextInputAction::Escape => {
+                self.return_to_main_menu(Status::None);
+            }
+        }
+    }
+
     fn write_save(&mut self, name: &str, path: &Path) {
         let game = match &self.screen {
             Screen::SaveSlotPicker { game, .. } | Screen::NameEntry { game, .. } => game.clone(),
@@ -592,6 +638,14 @@ fn seed_from_clock() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)
         .unwrap_or(0xDEADBEEF)
+}
+
+fn seed_from_text(text: &str) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    text.hash(&mut hasher);
+    hasher.finish()
 }
 
 fn default_save_dir() -> PathBuf {

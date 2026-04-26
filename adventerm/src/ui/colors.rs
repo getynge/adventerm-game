@@ -44,6 +44,11 @@ impl MenuColors {
     }
 }
 
+/// Brightness multiplier for tiles the player has previously seen but is no
+/// longer in line of sight of. Derived from the scheme's existing world colors
+/// so each scheme stays a single source of truth.
+pub const MEMORY_DIM_FACTOR: f32 = 0.4;
+
 /// Pre-computed ratatui Colors for the world palette.
 pub struct WorldColors {
     pub player: Color,
@@ -51,6 +56,16 @@ pub struct WorldColors {
     pub floor: Color,
     pub wall: Color,
     pub background: Color,
+    pub memory_floor: Color,
+    pub memory_wall: Color,
+    pub memory_interactive: Color,
+}
+
+fn dim(rgb: crate::config::Rgb) -> Color {
+    let r = (rgb[0] as f32 * MEMORY_DIM_FACTOR) as u8;
+    let g = (rgb[1] as f32 * MEMORY_DIM_FACTOR) as u8;
+    let b = (rgb[2] as f32 * MEMORY_DIM_FACTOR) as u8;
+    rgb_to_color([r, g, b])
 }
 
 impl WorldColors {
@@ -61,6 +76,9 @@ impl WorldColors {
             floor: rgb_to_color(p.floor),
             wall: rgb_to_color(p.wall),
             background: rgb_to_color(p.background),
+            memory_floor: dim(p.floor),
+            memory_wall: dim(p.wall),
+            memory_interactive: dim(p.interactive),
         }
     }
 }
