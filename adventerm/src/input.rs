@@ -1,4 +1,4 @@
-use crossterm::event::{Event, KeyCode, KeyEventKind};
+use crossterm::event::{Event, KeyCode, KeyEventKind, KeyModifiers};
 
 use crate::config::{BoundAction, KeybindMap};
 
@@ -8,6 +8,10 @@ pub enum Action {
     Down,
     Left,
     Right,
+    QuickUp,
+    QuickDown,
+    QuickLeft,
+    QuickRight,
     Confirm,
     Escape,
     Delete,
@@ -30,7 +34,12 @@ pub fn translate(event: &Event, binds: &KeybindMap) -> Option<Action> {
         return None;
     }
     if let Some(action) = binds.lookup(&key.code) {
+        let shift = key.modifiers.contains(KeyModifiers::SHIFT);
         return Some(match action {
+            BoundAction::Up if shift => Action::QuickUp,
+            BoundAction::Down if shift => Action::QuickDown,
+            BoundAction::Left if shift => Action::QuickLeft,
+            BoundAction::Right if shift => Action::QuickRight,
             BoundAction::Up => Action::Up,
             BoundAction::Down => Action::Down,
             BoundAction::Left => Action::Left,

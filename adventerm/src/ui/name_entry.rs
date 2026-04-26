@@ -1,24 +1,16 @@
 use ratatui::Frame;
-use ratatui::layout::{Alignment, Constraint, Flex, Layout, Rect};
-use ratatui::style::Style;
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::layout::{Alignment, Constraint, Layout};
+use ratatui::widgets::{Clear, Paragraph};
 
-use crate::config::{rgb_to_color, MenuPalette};
+use crate::ui::colors::{menu_block, MenuColors};
+use crate::ui::layout::{popup_rect, NAME_ENTRY_HEIGHT, NAME_ENTRY_WIDTH};
 
-pub fn render(frame: &mut Frame, buffer: &str, palette: &MenuPalette) {
+pub fn render(frame: &mut Frame, buffer: &str, colors: &MenuColors) {
     let area = frame.area();
-    let popup = popup_rect(area, 44, 5);
+    let popup = popup_rect(area, NAME_ENTRY_WIDTH, NAME_ENTRY_HEIGHT);
     frame.render_widget(Clear, popup);
 
-    let bg = rgb_to_color(palette.background);
-    let text = rgb_to_color(palette.text);
-    let title = rgb_to_color(palette.title);
-
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title(" Save name ")
-        .title_style(Style::default().fg(title).bg(bg))
-        .style(Style::default().fg(text).bg(bg));
+    let block = menu_block(" Save name ", colors);
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
 
@@ -33,27 +25,13 @@ pub fn render(frame: &mut Frame, buffer: &str, palette: &MenuPalette) {
     frame.render_widget(
         Paragraph::new(input)
             .alignment(Alignment::Center)
-            .style(Style::default().fg(text).bg(bg)),
+            .style(colors.body_style()),
         input_area,
     );
     frame.render_widget(
         Paragraph::new("Enter: save   Esc: cancel")
             .alignment(Alignment::Center)
-            .style(Style::default().fg(text).bg(bg)),
+            .style(colors.body_style()),
         footer_area,
     );
-}
-
-fn popup_rect(area: Rect, width: u16, height: u16) -> Rect {
-    let [_, row, _] = Layout::vertical([
-        Constraint::Fill(1),
-        Constraint::Length(height),
-        Constraint::Fill(1),
-    ])
-    .areas(area);
-
-    let [centered] = Layout::horizontal([Constraint::Length(width)])
-        .flex(Flex::Center)
-        .areas(row);
-    centered
 }

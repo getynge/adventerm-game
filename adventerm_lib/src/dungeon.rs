@@ -4,6 +4,20 @@ use std::collections::{HashMap, VecDeque};
 use crate::rng::Rng;
 use crate::room::{DoorId, Room, RoomId, TileKind};
 
+const ROOM_COUNT_MIN: usize = 6;
+const ROOM_COUNT_MAX_EXCL: usize = 11;
+const ROOM_WIDTH_MIN: usize = 42;
+const ROOM_WIDTH_MAX_EXCL: usize = 66;
+const ROOM_HEIGHT_MIN: usize = 20;
+const ROOM_HEIGHT_MAX_EXCL: usize = 32;
+const SUBROOM_COUNT_MIN: usize = 3;
+const SUBROOM_COUNT_MAX_EXCL: usize = 6;
+const SUBROOM_WIDTH_MIN: usize = 8;
+const SUBROOM_HEIGHT_MIN: usize = 6;
+const EXTRA_EDGES_MIN: usize = 1;
+const EXTRA_EDGES_MAX_EXCL: usize = 3;
+const ROOMS_FOR_EXTRA_EDGES: usize = 4;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Door {
     pub id: DoorId,
@@ -22,12 +36,12 @@ pub struct Dungeon {
 impl Dungeon {
     pub fn generate(seed: u64) -> Self {
         let mut rng = Rng::new(seed);
-        let room_count = rng.range(6, 11);
+        let room_count = rng.range(ROOM_COUNT_MIN, ROOM_COUNT_MAX_EXCL);
 
         let mut rooms: Vec<Room> = Vec::with_capacity(room_count);
         for i in 0..room_count {
-            let w = rng.range(42, 66);
-            let h = rng.range(20, 32);
+            let w = rng.range(ROOM_WIDTH_MIN, ROOM_WIDTH_MAX_EXCL);
+            let h = rng.range(ROOM_HEIGHT_MIN, ROOM_HEIGHT_MAX_EXCL);
             rooms.push(generate_room(RoomId(i as u32), w, h, &mut rng));
         }
 
@@ -82,12 +96,12 @@ impl Dungeon {
 fn generate_room(id: RoomId, width: usize, height: usize, rng: &mut Rng) -> Room {
     let mut room = Room::new_filled(id, width, height, TileKind::Wall);
 
-    let sub_count = rng.range(3, 6);
+    let sub_count = rng.range(SUBROOM_COUNT_MIN, SUBROOM_COUNT_MAX_EXCL);
     let mut subs: Vec<(usize, usize, usize, usize)> = Vec::with_capacity(sub_count);
 
     for _ in 0..sub_count {
-        let sw = rng.range(8, (width / 2).max(9));
-        let sh = rng.range(6, (height / 2).max(7));
+        let sw = rng.range(SUBROOM_WIDTH_MIN, (width / 2).max(SUBROOM_WIDTH_MIN + 1));
+        let sh = rng.range(SUBROOM_HEIGHT_MIN, (height / 2).max(SUBROOM_HEIGHT_MIN + 1));
         let sx = rng.range(1, (width - sw - 1).max(2));
         let sy = rng.range(1, (height - sh - 1).max(2));
         for y in sy..sy + sh {
@@ -118,34 +132,29 @@ fn carve_corridor(room: &mut Room, from: (usize, usize), to: (usize, usize), rng
     let horizontal_first = rng.chance(1, 2);
     let (corner_x, corner_y) = if horizontal_first { (tx, fy) } else { (fx, ty) };
 
-    let xs1 = fx.min(corner_x);
-    let xe1 = fx.max(corner_x);
-    let y1 = fy.min(corner_y);
-    let y2 = fy.max(corner_y);
-    for x in xs1..=xe1 {
-        if x > 0 && x < room.width - 1 && fy > 0 && fy < room.height - 1 {
-            room.set(x, fy, TileKind::Floor);
-        }
+    for x in fx.min(corner_x)..=fx.max(corner_x) {
+        carve_floor(room, x, fy);
     }
-    for y in y1..=y2 {
-        if corner_x > 0 && corner_x < room.width - 1 && y > 0 && y < room.height - 1 {
-            room.set(corner_x, y, TileKind::Floor);
-        }
+    for y in fy.min(corner_y)..=fy.max(corner_y) {
+        carve_floor(room, corner_x, y);
     }
+    for x in corner_x.min(tx)..=corner_x.max(tx) {
+        carve_floor(room, x, ty);
+    }
+    for y in corner_y.min(ty)..=corner_y.max(ty) {
+        carve_floor(room, tx, y);
+    }
+}
 
-    let xs2 = corner_x.min(tx);
-    let xe2 = corner_x.max(tx);
-    let y3 = corner_y.min(ty);
-    let y4 = corner_y.max(ty);
-    for x in xs2..=xe2 {
-        if x > 0 && x < room.width - 1 && ty > 0 && ty < room.height - 1 {
-            room.set(x, ty, TileKind::Floor);
-        }
+fn carve_floor(room: &mut Room, x: usize, y: usize) {
+    if x > 0 && x < room.width - 1 && y > 0 && y < room.height - 1 {
+        room.set(x, y, TileKind::Floor);
     }
-    for y in y3..=y4 {
-        if tx > 0 && tx < room.width - 1 && y > 0 && y < room.height - 1 {
-            room.set(tx, y, TileKind::Floor);
-        }
+}
+
+fn push_if_wall(out: &mut Vec<(usize, usize)>, room: &Room, x: usize, y: usize) {
+    if matches!(room.kind_at(x, y), Some(TileKind::Wall)) {
+        out.push((x, y));
     }
 }
 
@@ -154,7 +163,11 @@ fn build_edges(n: usize, rng: &mut Rng) -> Vec<(usize, usize)> {
     for i in 0..n.saturating_sub(1) {
         edges.push((i, i + 1));
     }
-    let extra = if n >= 4 { rng.range(1, 3) } else { 0 };
+    let extra = if n >= ROOMS_FOR_EXTRA_EDGES {
+        rng.range(EXTRA_EDGES_MIN, EXTRA_EDGES_MAX_EXCL)
+    } else {
+        0
+    };
     for _ in 0..extra {
         if n < 2 {
             break;
@@ -178,22 +191,12 @@ fn place_door(room: &mut Room, id: DoorId, rng: &mut Rng) -> Option<(usize, usiz
     }
     let mut perimeter: Vec<(usize, usize)> = Vec::new();
     for x in 1..room.width - 1 {
-        if matches!(room.kind_at(x, 0), Some(TileKind::Wall)) {
-            perimeter.push((x, 0));
-        }
-        let y = room.height - 1;
-        if matches!(room.kind_at(x, y), Some(TileKind::Wall)) {
-            perimeter.push((x, y));
-        }
+        push_if_wall(&mut perimeter, room, x, 0);
+        push_if_wall(&mut perimeter, room, x, room.height - 1);
     }
     for y in 1..room.height - 1 {
-        if matches!(room.kind_at(0, y), Some(TileKind::Wall)) {
-            perimeter.push((0, y));
-        }
-        let x = room.width - 1;
-        if matches!(room.kind_at(x, y), Some(TileKind::Wall)) {
-            perimeter.push((x, y));
-        }
+        push_if_wall(&mut perimeter, room, 0, y);
+        push_if_wall(&mut perimeter, room, room.width - 1, y);
     }
     if perimeter.is_empty() {
         return None;

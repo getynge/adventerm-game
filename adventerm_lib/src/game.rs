@@ -4,6 +4,15 @@ use crate::dungeon::{Dungeon, step_inward};
 use crate::room::{DoorId, Room, RoomId, TileKind};
 use crate::world::{Direction, Tile};
 
+fn step(direction: Direction, x: usize, y: usize) -> (isize, isize) {
+    match direction {
+        Direction::Up => (x as isize, y as isize - 1),
+        Direction::Down => (x as isize, y as isize + 1),
+        Direction::Left => (x as isize - 1, y as isize),
+        Direction::Right => (x as isize + 1, y as isize),
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MoveOutcome {
     Blocked,
@@ -63,12 +72,7 @@ impl GameState {
 
     pub fn move_player(&mut self, direction: Direction) -> MoveOutcome {
         let (x, y) = self.player;
-        let (nx, ny) = match direction {
-            Direction::Up => (x as isize, y as isize - 1),
-            Direction::Down => (x as isize, y as isize + 1),
-            Direction::Left => (x as isize - 1, y as isize),
-            Direction::Right => (x as isize + 1, y as isize),
-        };
+        let (nx, ny) = step(direction, x, y);
         let room = self.current_room();
         if !room.in_bounds(nx, ny) {
             return MoveOutcome::Blocked;
@@ -79,6 +83,34 @@ impl GameState {
         }
         self.player = (nx, ny);
         MoveOutcome::Moved
+    }
+
+    /// Slide the player as far as possible in `direction` without stepping
+    /// onto an interactable tile (currently doors). Stops when the next tile
+    /// is out of bounds, a wall, or a door.
+    pub fn quick_move(&mut self, direction: Direction) -> MoveOutcome {
+        let mut moved = false;
+        loop {
+            let (x, y) = self.player;
+            let (nx, ny) = step(direction, x, y);
+            let room = self.current_room();
+            if !room.in_bounds(nx, ny) {
+                break;
+            }
+            let (nx, ny) = (nx as usize, ny as usize);
+            match room.kind_at(nx, ny) {
+                Some(TileKind::Floor) => {
+                    self.player = (nx, ny);
+                    moved = true;
+                }
+                _ => break,
+            }
+        }
+        if moved {
+            MoveOutcome::Moved
+        } else {
+            MoveOutcome::Blocked
+        }
     }
 
     pub fn interact(&mut self) -> Option<DoorEvent> {
@@ -162,6 +194,71 @@ mod tests {
         // Player ends on a walkable tile in the new room.
         let room = state.current_room();
         assert!(room.is_walkable(state.player.0, state.player.1));
+    }
+
+    #[test]
+    fn quick_move_stops_before_door() {
+        let mut state = GameState::new_seeded(17);
+        let (_, door_pos) = find_door_position(&state);
+        let room = state.current_room();
+        // Find a floor tile in the same row/column as the door so we can
+        // slide toward it. Pick a direction with a clear straight run.
+        let candidates: Vec<(Direction, (usize, usize))> = (0..room.width)
+            .flat_map(|x| (0..room.height).map(move |y| (x, y)))
+            .filter(|&(x, y)| {
+                matches!(room.kind_at(x, y), Some(TileKind::Floor))
+                    && (x == door_pos.0 || y == door_pos.1)
+                    && (x, y) != door_pos
+            })
+            .filter_map(|(x, y)| {
+                let dir = if y == door_pos.1 && x < door_pos.0 {
+                    Direction::Right
+                } else if y == door_pos.1 && x > door_pos.0 {
+                    Direction::Left
+                } else if x == door_pos.0 && y < door_pos.1 {
+                    Direction::Down
+                } else if x == door_pos.0 && y > door_pos.1 {
+                    Direction::Up
+                } else {
+                    return None;
+                };
+                Some((dir, (x, y)))
+            })
+            .collect();
+        let (dir, start) = *candidates
+            .first()
+            .expect("door should have a floor tile in line with it");
+        state.player = start;
+        let outcome = state.quick_move(dir);
+        // Player slid (or was already adjacent) but never landed on the door.
+        let (px, py) = state.player;
+        assert_ne!((px, py), door_pos);
+        assert!(matches!(
+            state.current_room().kind_at(px, py),
+            Some(TileKind::Floor)
+        ));
+        // If we started adjacent to the door, no step was possible.
+        let adjacent = (start.0 as isize - door_pos.0 as isize).abs()
+            + (start.1 as isize - door_pos.1 as isize).abs()
+            == 1;
+        if adjacent {
+            assert_eq!(outcome, MoveOutcome::Blocked);
+            assert_eq!((px, py), start);
+        } else {
+            assert_eq!(outcome, MoveOutcome::Moved);
+        }
+    }
+
+    #[test]
+    fn quick_move_into_wall_blocks_when_no_floor_step() {
+        let mut state = GameState::new_seeded(11);
+        // Slide up until quick_move stops, then quick_move again — second call
+        // must report Blocked because we are already against the obstacle.
+        state.quick_move(Direction::Up);
+        let before = state.player;
+        let outcome = state.quick_move(Direction::Up);
+        assert_eq!(outcome, MoveOutcome::Blocked);
+        assert_eq!(state.player, before);
     }
 
     #[test]

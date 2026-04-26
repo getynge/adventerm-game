@@ -18,6 +18,21 @@ These are load-bearing constraints for this project. Honor them when adding feat
 3. **Core gameplay layout is fixed.** During core gameplay the screen has three regions: a large central window (the world), a short window beneath it for dialog/game information, and a narrow tall window to the right for player actions/options. This rule applies *only* to core gameplay — main menu, pause menu, inventory, and other interface screens are not bound by this layout.
 4. **UI-only state stays in the binary.** State that exists purely to drive rendering (e.g. menu cursor positions, scroll offsets, animation timers) belongs to `adventerm`, not the library. The library should expose available options/data; the binary decides how the user navigates them.
 
+## Reference docs
+
+Before planning a new feature or non-trivial change, read [agents/README.md](agents/README.md) and the relevant doc(s) it indexes — they map the codebase's modules, screen state machine, and reusable patterns. Reach for an existing helper from [agents/patterns.md](agents/patterns.md) before introducing a new abstraction.
+
+Keep `agents/` in sync. Any major change — a new screen or `Screen` variant, a new module, a new public type crossing the lib/binary boundary, a new reusable helper, a renamed or moved load-bearing symbol, or a change to the save format / generation constants — must update the relevant `agents/` file(s) in the same change. Smaller edits don't require a doc update, but periodically sweep `agents/` to catch drift.
+
+## Code style principles
+
+Honor these when writing or modifying code:
+
+1. **Single-purpose structures.** A struct/enum should have one responsibility. Compose smaller pieces rather than growing a god-struct. UI state belongs to the screen variant that uses it, not on a top-level `App`.
+2. **No magic numbers.** Inline literals (sizes, paddings, ranges, durations) should be named constants — ideally derived from a single source — so editing one item never requires changing several values.
+3. **Concise and self-explanatory.** Code should be readable without IDE tooling or deep repo familiarity. Prefer small helpers (`carve_floor`, `menu_block`, `MenuColors`) over inlined boilerplate. Avoid intermediate names that don't earn their keep.
+4. **Top-down state flow.** Ownership is hierarchical with a clear path from `main` to any logic point. Each piece of state has one owner. Avoid implicit lifecycles (e.g. status strings cleared in some transitions but not others); make state transitions explicit and ideally enforced by the type system.
+
 ## Commands
 
 Run from the workspace root.

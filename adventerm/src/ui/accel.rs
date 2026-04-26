@@ -1,11 +1,15 @@
 use std::collections::HashSet;
 
-use ratatui::style::{Modifier, Style};
+use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 
-use crate::config::{rgb_to_color, MenuPalette};
+use crate::ui::colors::MenuColors;
 
 const RESERVED: &[char] = &['w', 'a', 's', 'd', 'h', 'j', 'k', 'l'];
+
+pub const CURSOR_LEAD: &str = "> ";
+pub const CURSOR_TRAIL: &str = " <";
+pub const CURSOR_BLANK: &str = "  ";
 
 pub fn assign(labels: &[&str]) -> Vec<Option<usize>> {
     let mut used: HashSet<char> = RESERVED.iter().copied().collect();
@@ -40,20 +44,18 @@ pub fn line(
     label: &str,
     accel: Option<usize>,
     selected: bool,
-    palette: &MenuPalette,
+    colors: &MenuColors,
 ) -> Line<'static> {
-    let bg = rgb_to_color(palette.background);
-    let text = rgb_to_color(palette.text);
-    let accel_color = rgb_to_color(palette.accel);
-    let cursor_fg = rgb_to_color(palette.cursor_fg);
-    let cursor_bg = rgb_to_color(palette.cursor_bg);
-
     let base = if selected {
-        Style::default().fg(cursor_fg).bg(cursor_bg)
+        colors.cursor_style()
     } else {
-        Style::default().fg(text).bg(bg)
+        colors.body_style()
     };
-    let (lead, trail) = if selected { ("> ", " <") } else { ("  ", "  ") };
+    let (lead, trail) = if selected {
+        (CURSOR_LEAD, CURSOR_TRAIL)
+    } else {
+        (CURSOR_BLANK, CURSOR_BLANK)
+    };
 
     let mut spans: Vec<Span<'static>> = Vec::with_capacity(5);
     spans.push(Span::styled(lead.to_string(), base));
@@ -71,7 +73,7 @@ pub fn line(
             let accel_style = if selected {
                 base.add_modifier(Modifier::UNDERLINED)
             } else {
-                base.fg(accel_color).add_modifier(Modifier::UNDERLINED)
+                base.fg(colors.accel).add_modifier(Modifier::UNDERLINED)
             };
             spans.push(Span::styled(accel_char.to_string(), accel_style));
             if !after.is_empty() {

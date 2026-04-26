@@ -1,36 +1,33 @@
 use adventerm_lib::{GameState, Tile};
 use ratatui::Frame;
-use ratatui::layout::{Alignment, Constraint, Layout};
+use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::Paragraph;
 
-use crate::config::{rgb_to_color, ColorScheme};
+use crate::ui::colors::{menu_block, SchemeColors};
 
-pub fn render(frame: &mut Frame, state: &GameState, status: Option<&str>, scheme: &ColorScheme) {
+const ACTIONS_PANEL_WIDTH: u16 = 20;
+const DIALOG_PANEL_HEIGHT: u16 = 5;
+
+pub fn render(frame: &mut Frame, state: &GameState, status: Option<&str>, colors: &SchemeColors) {
     let area = frame.area();
 
     let [main_area, right_area] =
-        Layout::horizontal([Constraint::Fill(1), Constraint::Length(20)]).areas(area);
+        Layout::horizontal([Constraint::Fill(1), Constraint::Length(ACTIONS_PANEL_WIDTH)])
+            .areas(area);
 
     let [center_area, dialog_area] =
-        Layout::vertical([Constraint::Fill(1), Constraint::Length(5)]).areas(main_area);
+        Layout::vertical([Constraint::Fill(1), Constraint::Length(DIALOG_PANEL_HEIGHT)])
+            .areas(main_area);
 
-    render_world(frame, state, center_area, scheme);
-    render_dialog(frame, state, status, dialog_area, scheme);
-    render_actions(frame, right_area, scheme);
+    render_world(frame, state, center_area, colors);
+    render_dialog(frame, state, status, dialog_area, &colors.menu);
+    render_actions(frame, right_area, &colors.menu);
 }
 
-fn render_world(frame: &mut Frame, state: &GameState, area: ratatui::layout::Rect, scheme: &ColorScheme) {
-    let world_bg = rgb_to_color(scheme.world.background);
-    let menu_bg = rgb_to_color(scheme.menu.background);
-    let menu_text = rgb_to_color(scheme.menu.text);
-    let title_color = rgb_to_color(scheme.menu.title);
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title(" World ")
-        .title_style(Style::default().fg(title_color).bg(menu_bg))
-        .style(Style::default().fg(menu_text).bg(menu_bg));
+fn render_world(frame: &mut Frame, state: &GameState, area: Rect, colors: &SchemeColors) {
+    let block = menu_block(" World ", &colors.menu);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -48,20 +45,16 @@ fn render_world(frame: &mut Frame, state: &GameState, area: ratatui::layout::Rec
     let off_x = scroll_offset(px as u16, view_w, room_w);
     let off_y = scroll_offset(py as u16, view_h, room_h);
 
-    let player = rgb_to_color(scheme.world.player);
-    let interactive = rgb_to_color(scheme.world.interactive);
-    let floor = rgb_to_color(scheme.world.floor);
-    let wall = rgb_to_color(scheme.world.wall);
-
+    let world_bg = colors.world.background;
     let mut lines: Vec<Line> = Vec::with_capacity(view_h as usize);
     for y in off_y..off_y + view_h {
         let mut spans: Vec<Span> = Vec::with_capacity(view_w as usize);
         for x in off_x..off_x + view_w {
             let (glyph, fg) = match state.tile_at(x as usize, y as usize) {
-                Tile::Player => ('@', player),
-                Tile::Door => ('+', interactive),
-                Tile::Floor => ('.', floor),
-                Tile::Wall => ('#', wall),
+                Tile::Player => ('@', colors.world.player),
+                Tile::Door => ('+', colors.world.interactive),
+                Tile::Floor => ('.', colors.world.floor),
+                Tile::Wall => ('#', colors.world.wall),
             };
             spans.push(Span::styled(
                 glyph.to_string(),
@@ -94,18 +87,10 @@ fn render_dialog(
     frame: &mut Frame,
     state: &GameState,
     status: Option<&str>,
-    area: ratatui::layout::Rect,
-    scheme: &ColorScheme,
+    area: Rect,
+    colors: &crate::ui::colors::MenuColors,
 ) {
-    let bg = rgb_to_color(scheme.menu.background);
-    let text = rgb_to_color(scheme.menu.text);
-    let title = rgb_to_color(scheme.menu.title);
-    let status_color = rgb_to_color(scheme.menu.status);
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title(" Dialog ")
-        .title_style(Style::default().fg(title).bg(bg))
-        .style(Style::default().fg(text).bg(bg));
+    let block = menu_block(" Dialog ", colors);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -113,32 +98,22 @@ fn render_dialog(
     if state.player_on_door().is_some() {
         lines.push(Line::from(Span::styled(
             "Press Enter to open door",
-            Style::default().fg(text).bg(bg),
+            colors.body_style(),
         )));
     }
     if let Some(msg) = status {
         lines.push(Line::from(Span::styled(
             msg.to_string(),
-            Style::default().fg(status_color).bg(bg),
+            Style::default().fg(colors.status).bg(colors.background),
         )));
     }
     if !lines.is_empty() {
-        frame.render_widget(
-            Paragraph::new(lines).style(Style::default().fg(text).bg(bg)),
-            inner,
-        );
+        frame.render_widget(Paragraph::new(lines).style(colors.body_style()), inner);
     }
 }
 
-fn render_actions(frame: &mut Frame, area: ratatui::layout::Rect, scheme: &ColorScheme) {
-    let bg = rgb_to_color(scheme.menu.background);
-    let text = rgb_to_color(scheme.menu.text);
-    let title = rgb_to_color(scheme.menu.title);
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title(" Actions ")
-        .title_style(Style::default().fg(title).bg(bg))
-        .style(Style::default().fg(text).bg(bg));
+fn render_actions(frame: &mut Frame, area: Rect, colors: &crate::ui::colors::MenuColors) {
+    let block = menu_block(" Actions ", colors);
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -150,18 +125,15 @@ fn render_actions(frame: &mut Frame, area: ratatui::layout::Rect, scheme: &Color
         Line::from(""),
         Line::from("Pause: Esc"),
     ];
-    frame.render_widget(
-        Paragraph::new(lines).style(Style::default().fg(text).bg(bg)),
-        inner,
-    );
+    frame.render_widget(Paragraph::new(lines).style(colors.body_style()), inner);
 }
 
-fn center_rect(area: ratatui::layout::Rect, width: u16, height: u16) -> ratatui::layout::Rect {
+fn center_rect(area: Rect, width: u16, height: u16) -> Rect {
     let width = width.min(area.width);
     let height = height.min(area.height);
     let x = area.x + area.width.saturating_sub(width) / 2;
     let y = area.y + area.height.saturating_sub(height) / 2;
-    ratatui::layout::Rect {
+    Rect {
         x,
         y,
         width,
