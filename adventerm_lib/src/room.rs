@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::items::Item;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RoomId(pub u32);
 
@@ -19,6 +21,20 @@ pub struct Room {
     pub width: usize,
     pub height: usize,
     pub tiles: Vec<TileKind>,
+    /// Persistent light sources. Each entry illuminates a disc around itself
+    /// regardless of the player's position. Wall lights are placed during
+    /// dungeon generation; the player adds entries here by placing torches.
+    #[serde(default)]
+    pub lights: Vec<(usize, usize)>,
+    /// Items resting on the floor, keyed by tile coordinate. Picked up via
+    /// `take_item_at`; new items may be added during generation.
+    #[serde(default)]
+    pub items: Vec<((usize, usize), Item)>,
+    /// Positions of currently-active flares. While the player is in this
+    /// room, every tile is lit. When the player leaves, each flare reverts
+    /// to a regular torch (its position is moved into `lights`).
+    #[serde(default)]
+    pub flares: Vec<(usize, usize)>,
 }
 
 impl Room {
@@ -28,7 +44,55 @@ impl Room {
             width,
             height,
             tiles: vec![fill; width * height],
+            lights: Vec::new(),
+            items: Vec::new(),
+            flares: Vec::new(),
         }
+    }
+
+    pub fn add_flare(&mut self, pos: (usize, usize)) {
+        if !self.flares.contains(&pos) {
+            self.flares.push(pos);
+        }
+    }
+
+    /// Drain all active flares, leaving them as regular lights (torches).
+    /// Called when the player leaves the room.
+    pub fn burn_out_flares(&mut self) {
+        for pos in self.flares.drain(..) {
+            if !self.lights.contains(&pos) {
+                self.lights.push(pos);
+            }
+        }
+    }
+
+    pub fn add_light(&mut self, pos: (usize, usize)) {
+        if !self.lights.contains(&pos) {
+            self.lights.push(pos);
+        }
+    }
+
+    pub fn add_item(&mut self, pos: (usize, usize), item: Item) {
+        self.items.push((pos, item));
+    }
+
+    pub fn take_item_at(&mut self, pos: (usize, usize)) -> Option<Item> {
+        let i = self.items.iter().position(|(p, _)| *p == pos)?;
+        Some(self.items.remove(i).1)
+    }
+
+    pub fn items_at(&self, pos: (usize, usize)) -> impl Iterator<Item = &Item> + '_ {
+        self.items
+            .iter()
+            .filter_map(move |(p, it)| if *p == pos { Some(it) } else { None })
+    }
+
+    pub fn has_light_at(&self, pos: (usize, usize)) -> bool {
+        self.lights.contains(&pos)
+    }
+
+    pub fn has_item_at(&self, pos: (usize, usize)) -> bool {
+        self.items.iter().any(|(p, _)| *p == pos)
     }
 
     pub fn idx(&self, x: usize, y: usize) -> usize {

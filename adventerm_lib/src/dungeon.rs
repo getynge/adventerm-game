@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 
+use crate::items::{Item, ItemId, ItemKind};
 use crate::rng::Rng;
 use crate::room::{DoorId, Room, RoomId, TileKind};
 
@@ -17,6 +18,22 @@ const SUBROOM_HEIGHT_MIN: usize = 6;
 const EXTRA_EDGES_MIN: usize = 1;
 const EXTRA_EDGES_MAX_EXCL: usize = 3;
 const ROOMS_FOR_EXTRA_EDGES: usize = 4;
+
+/// Per-room probability of containing wall lights, expressed as `num/den`.
+/// Stays comfortably below 50%.
+const WALL_LIGHT_CHANCE_NUM: u32 = 2;
+const WALL_LIGHT_CHANCE_DEN: u32 = 5;
+const WALL_LIGHT_COUNT_MIN: usize = 1;
+const WALL_LIGHT_COUNT_MAX_EXCL: usize = 4;
+
+/// Per-room probability of spawning a ground item.
+const GROUND_ITEM_CHANCE_NUM: u32 = 1;
+const GROUND_ITEM_CHANCE_DEN: u32 = 2;
+
+/// Conditional on a ground item spawning, the probability that it is a flare
+/// rather than a torch. Kept low so flares feel rare.
+const FLARE_OF_ITEM_NUM: u32 = 1;
+const FLARE_OF_ITEM_DEN: u32 = 8;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Door {
@@ -47,10 +64,14 @@ impl Dungeon {
 
     fn generate_inner(seed: u64, room_count: usize, mut rng: Rng) -> Self {
         let mut rooms: Vec<Room> = Vec::with_capacity(room_count);
+        let mut next_item_id: u32 = 0;
         for i in 0..room_count {
             let w = rng.range(ROOM_WIDTH_MIN, ROOM_WIDTH_MAX_EXCL);
             let h = rng.range(ROOM_HEIGHT_MIN, ROOM_HEIGHT_MAX_EXCL);
-            rooms.push(generate_room(RoomId(i as u32), w, h, &mut rng));
+            let mut room = generate_room(RoomId(i as u32), w, h, &mut rng);
+            place_wall_lights(&mut room, &mut rng);
+            place_room_items(&mut room, &mut rng, &mut next_item_id);
+            rooms.push(room);
         }
 
         let edges = build_edges(room_count, &mut rng);
@@ -265,6 +286,77 @@ fn carve_to_nearest_floor(room: &mut Room, start: (usize, usize)) -> bool {
     true
 }
 
+/// Place wall lights for a freshly carved room. With probability
+/// `WALL_LIGHT_CHANCE_NUM/DEN` (kept under 50% per the design spec) the room
+/// gets 1–3 lights, each on a wall tile orthogonally adjacent to a floor tile
+/// so the light has somewhere to shine.
+fn place_wall_lights(room: &mut Room, rng: &mut Rng) {
+    if !rng.chance(WALL_LIGHT_CHANCE_NUM, WALL_LIGHT_CHANCE_DEN) {
+        return;
+    }
+    let candidates: Vec<(usize, usize)> = wall_tiles_adjacent_to_floor(room);
+    if candidates.is_empty() {
+        return;
+    }
+    let count = rng.range(WALL_LIGHT_COUNT_MIN, WALL_LIGHT_COUNT_MAX_EXCL).min(candidates.len());
+    for _ in 0..count {
+        let pick = candidates[rng.range(0, candidates.len())];
+        room.add_light(pick);
+    }
+}
+
+fn wall_tiles_adjacent_to_floor(room: &Room) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    for y in 0..room.height {
+        for x in 0..room.width {
+            if !matches!(room.kind_at(x, y), Some(TileKind::Wall)) {
+                continue;
+            }
+            let neighbors = [
+                (x as isize - 1, y as isize),
+                (x as isize + 1, y as isize),
+                (x as isize, y as isize - 1),
+                (x as isize, y as isize + 1),
+            ];
+            let touches_floor = neighbors.iter().any(|&(nx, ny)| {
+                room.in_bounds(nx, ny)
+                    && matches!(
+                        room.kind_at(nx as usize, ny as usize),
+                        Some(TileKind::Floor)
+                    )
+            });
+            if touches_floor {
+                out.push((x, y));
+            }
+        }
+    }
+    out
+}
+
+/// Place a single ground item with a low per-room probability. Currently the
+/// only kind generated is `Torch`; expand the match below to add more.
+fn place_room_items(room: &mut Room, rng: &mut Rng, next_item_id: &mut u32) {
+    if !rng.chance(GROUND_ITEM_CHANCE_NUM, GROUND_ITEM_CHANCE_DEN) {
+        return;
+    }
+    let floors: Vec<(usize, usize)> = (0..room.height)
+        .flat_map(|y| (0..room.width).map(move |x| (x, y)))
+        .filter(|&(x, y)| matches!(room.kind_at(x, y), Some(TileKind::Floor)))
+        .collect();
+    if floors.is_empty() {
+        return;
+    }
+    let pos = floors[rng.range(0, floors.len())];
+    let id = ItemId(*next_item_id);
+    *next_item_id = next_item_id.wrapping_add(1);
+    let kind = if rng.chance(FLARE_OF_ITEM_NUM, FLARE_OF_ITEM_DEN) {
+        ItemKind::Flare
+    } else {
+        ItemKind::Torch
+    };
+    room.add_item(pos, Item { id, kind });
+}
+
 /// Step from a door tile one step inward — toward the room interior.
 pub fn step_inward(door_pos: (usize, usize), room: &Room) -> (usize, usize) {
     let (x, y) = door_pos;
@@ -407,6 +499,51 @@ mod tests {
                 room.id
             );
         }
+    }
+
+    #[test]
+    fn wall_lights_land_on_wall_tiles() {
+        let d = Dungeon::generate(42);
+        for room in &d.rooms {
+            for &pos in &room.lights {
+                assert!(matches!(
+                    room.kind_at(pos.0, pos.1),
+                    Some(TileKind::Wall)
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn ground_items_land_on_floor_tiles() {
+        let d = Dungeon::generate(42);
+        for room in &d.rooms {
+            for (pos, _) in &room.items {
+                assert!(matches!(
+                    room.kind_at(pos.0, pos.1),
+                    Some(TileKind::Floor)
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn wall_light_spawn_rate_under_half() {
+        let mut with_light = 0usize;
+        let mut total = 0usize;
+        for seed in 0..40u64 {
+            let d = Dungeon::generate(seed);
+            for room in &d.rooms {
+                total += 1;
+                if !room.lights.is_empty() {
+                    with_light += 1;
+                }
+            }
+        }
+        assert!(total > 0);
+        // 2/5 == 40% target — comfortably under 50%.
+        let fraction = with_light as f32 / total as f32;
+        assert!(fraction < 0.5, "expected < 50% rooms with lights, got {fraction}");
     }
 
     #[test]

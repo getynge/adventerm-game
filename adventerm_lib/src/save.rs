@@ -6,7 +6,7 @@ use std::time::SystemTime;
 
 use crate::game::GameState;
 
-pub const SAVE_VERSION: u32 = 3;
+pub const SAVE_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Save {

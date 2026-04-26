@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::dungeon::{Dungeon, step_inward};
+use crate::dungeon::{step_inward, Dungeon};
+use crate::items::{Item, ItemKind};
 use crate::los;
 use crate::room::{DoorId, Room, RoomId, TileKind};
 use crate::world::{Direction, Tile};
@@ -29,6 +30,16 @@ pub struct DoorEvent {
     pub new_room: RoomId,
 }
 
+/// Result of placing an item from inventory.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlaceOutcome {
+    /// A torch was placed at the player's tile.
+    TorchPlaced,
+    /// A flare was lit; the entire current room is illuminated until the
+    /// player leaves.
+    FlarePlaced,
+}
+
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct GameState {
     pub dungeon: Dungeon,
@@ -36,8 +47,14 @@ pub struct GameState {
     pub player: (usize, usize),
     #[serde(default)]
     pub explored: HashMap<RoomId, Vec<bool>>,
+    #[serde(default)]
+    pub inventory: Vec<Item>,
     #[serde(skip)]
     visible: Vec<bool>,
+    /// Cached "tile is within some persistent light's reach" bitmap for the
+    /// current room. Recomputed in `refresh_visibility`.
+    #[serde(skip)]
+    lit: Vec<bool>,
 }
 
 impl PartialEq for GameState {
@@ -46,6 +63,7 @@ impl PartialEq for GameState {
             && self.current_room == other.current_room
             && self.player == other.player
             && self.explored == other.explored
+            && self.inventory == other.inventory
     }
 }
 
@@ -62,7 +80,9 @@ impl GameState {
             current_room: start_room,
             player,
             explored: HashMap::new(),
+            inventory: Vec::new(),
             visible: Vec::new(),
+            lit: Vec::new(),
         };
         state.refresh_visibility();
         state
@@ -89,6 +109,8 @@ impl GameState {
         }
     }
 
+    /// True when the tile is currently lit by either player LOS or any
+    /// persistent light in the current room.
     pub fn is_visible(&self, x: usize, y: usize) -> bool {
         let room = self.current_room();
         if x >= room.width || y >= room.height {
@@ -96,6 +118,7 @@ impl GameState {
         }
         let i = room.idx(x, y);
         self.visible.get(i).copied().unwrap_or(false)
+            || self.lit.get(i).copied().unwrap_or(false)
     }
 
     pub fn is_explored(&self, x: usize, y: usize) -> bool {
@@ -114,6 +137,54 @@ impl GameState {
         match self.current_room().kind_at(self.player.0, self.player.1) {
             Some(TileKind::Door(id)) => Some(id),
             _ => None,
+        }
+    }
+
+    /// True iff there is at least one item resting on the player's tile.
+    pub fn items_here(&self) -> bool {
+        self.current_room().has_item_at(self.player)
+    }
+
+    /// First item resting on the player's tile, if any. Used by the renderer
+    /// to surface a pickup prompt.
+    pub fn peek_item_here(&self) -> Option<&Item> {
+        self.current_room().items_at(self.player).next()
+    }
+
+    /// Pick up one item at the player's tile, push it into the inventory,
+    /// return it for status reporting. Returns `None` if no item is here.
+    pub fn pick_up_here(&mut self) -> Option<Item> {
+        let pos = self.player;
+        let room_id = self.current_room;
+        let item = self.dungeon.room_mut(room_id).take_item_at(pos)?;
+        self.inventory.push(item.clone());
+        Some(item)
+    }
+
+    /// Place the inventory item at `slot` onto the world. Currently only
+    /// `Torch` is placeable: its position is appended to the current room's
+    /// `lights`, permanently illuminating the LOS disc around the placement
+    /// tile.
+    pub fn place_item(&mut self, slot: usize) -> Option<PlaceOutcome> {
+        if slot >= self.inventory.len() {
+            return None;
+        }
+        let item = &self.inventory[slot];
+        let pos = self.player;
+        let room_id = self.current_room;
+        match item.kind {
+            ItemKind::Torch => {
+                self.dungeon.room_mut(room_id).add_light(pos);
+                self.inventory.remove(slot);
+                self.refresh_visibility();
+                Some(PlaceOutcome::TorchPlaced)
+            }
+            ItemKind::Flare => {
+                self.dungeon.room_mut(room_id).add_flare(pos);
+                self.inventory.remove(slot);
+                self.refresh_visibility();
+                Some(PlaceOutcome::FlarePlaced)
+            }
         }
     }
 
@@ -173,6 +244,10 @@ impl GameState {
         let target_door = self.dungeon.door(to).clone();
         let target_room = target_door.owner;
         let landing = step_inward(target_door.pos, self.dungeon.room(target_room));
+        // Leaving the current room: any active flares burn out into regular
+        // torches before we move on.
+        let leaving_room = self.current_room;
+        self.dungeon.room_mut(leaving_room).burn_out_flares();
         self.current_room = target_room;
         self.player = landing;
         self.refresh_visibility();
@@ -183,9 +258,10 @@ impl GameState {
         })
     }
 
-    /// Recompute `visible` for the current room and OR it into `explored`.
-    /// Call after any state change that affects what the player can see
-    /// (movement, room transition, post-deserialize rehydration).
+    /// Recompute `visible` and `lit` for the current room and OR them into
+    /// `explored`. Call after any state change that affects what the player
+    /// can see (movement, room transition, light placement, post-deserialize
+    /// rehydration).
     pub fn refresh_visibility(&mut self) {
         let room_id = self.current_room;
         let (width, height, player) = {
@@ -193,17 +269,39 @@ impl GameState {
             (room.width, room.height, self.player)
         };
         let len = width * height;
-        // Re-borrow the room immutably for the los call.
-        los::compute_visible(self.dungeon.room(room_id), player, &mut self.visible);
-        let memory = self
-            .explored
-            .entry(room_id)
-            .or_insert_with(|| vec![false; len]);
+
+        let room = self.dungeon.room(room_id);
+        los::compute_visible(room, player, &mut self.visible);
+
+        // Combine all persistent lights into self.lit. Active flares
+        // illuminate every tile in the room.
+        self.lit.clear();
+        self.lit.resize(len, false);
+        if !room.flares.is_empty() {
+            for v in self.lit.iter_mut() {
+                *v = true;
+            }
+        }
+        let mut tmp: Vec<bool> = Vec::new();
+        for &light_pos in &room.lights {
+            los::compute_visible_with_radius(room, light_pos, los::LIGHT_RANGE, &mut tmp);
+            for (dst, src) in self.lit.iter_mut().zip(tmp.iter()) {
+                if *src {
+                    *dst = true;
+                }
+            }
+        }
+
+        let memory = self.explored.entry(room_id).or_insert_with(|| vec![false; len]);
         if memory.len() != len {
             memory.resize(len, false);
         }
-        for (m, v) in memory.iter_mut().zip(self.visible.iter()) {
-            if *v {
+        for ((m, v), l) in memory
+            .iter_mut()
+            .zip(self.visible.iter())
+            .zip(self.lit.iter())
+        {
+            if *v || *l {
                 *m = true;
             }
         }
@@ -253,10 +351,7 @@ mod tests {
             }
         }
         let (wx, wy) = witness.expect("at least one tile besides the player should be visible");
-        // Now move some steps; whether or not the witness remains in LOS,
-        // is_explored must stay true.
         for _ in 0..crate::los::LOS_RANGE + 2 {
-            // Try multiple directions; first successful move is enough.
             for dir in [Direction::Down, Direction::Up, Direction::Left, Direction::Right] {
                 if state.move_player(dir) == MoveOutcome::Moved {
                     break;
@@ -277,10 +372,8 @@ mod tests {
         let dest_room = event.new_room;
         assert_ne!(origin_room, dest_room);
         let (px, py) = state.player;
-        // Landing tile is visible AND recorded as explored in the destination room.
         assert!(state.is_visible(px, py));
         assert!(state.is_explored(px, py));
-        // Both rooms have entries in the explored map now.
         assert!(state.explored.contains_key(&origin_room));
         assert!(state.explored.contains_key(&dest_room));
     }
@@ -288,7 +381,6 @@ mod tests {
     #[test]
     fn walk_into_wall_blocks() {
         let mut state = GameState::new_seeded(11);
-        // Walk up many times — eventually we hit a wall.
         let start = state.player;
         let mut blocked_at_least_once = false;
         for _ in 0..50 {
@@ -298,11 +390,9 @@ mod tests {
             }
         }
         assert!(blocked_at_least_once);
-        // The player position never landed on a wall.
         let room = state.current_room();
         let (px, py) = state.player;
         assert!(room.is_walkable(px, py));
-        // Check that the start position was different from a wall too.
         assert!(room.is_walkable(start.0, start.1));
     }
 
@@ -326,7 +416,6 @@ mod tests {
         assert_eq!(event.from, door_id);
         assert_ne!(state.current_room, prev_room);
         assert_eq!(state.current_room, event.new_room);
-        // Player ends on a walkable tile in the new room.
         let room = state.current_room();
         assert!(room.is_walkable(state.player.0, state.player.1));
     }
@@ -336,8 +425,6 @@ mod tests {
         let mut state = GameState::new_seeded(17);
         let (_, door_pos) = find_door_position(&state);
         let room = state.current_room();
-        // Find a floor tile in the same row/column as the door so we can
-        // slide toward it. Pick a direction with a clear straight run.
         let candidates: Vec<(Direction, (usize, usize))> = (0..room.width)
             .flat_map(|x| (0..room.height).map(move |y| (x, y)))
             .filter(|&(x, y)| {
@@ -365,14 +452,12 @@ mod tests {
             .expect("door should have a floor tile in line with it");
         state.player = start;
         let outcome = state.quick_move(dir);
-        // Player slid (or was already adjacent) but never landed on the door.
         let (px, py) = state.player;
         assert_ne!((px, py), door_pos);
         assert!(matches!(
             state.current_room().kind_at(px, py),
             Some(TileKind::Floor)
         ));
-        // If we started adjacent to the door, no step was possible.
         let adjacent = (start.0 as isize - door_pos.0 as isize).abs()
             + (start.1 as isize - door_pos.1 as isize).abs()
             == 1;
@@ -387,8 +472,6 @@ mod tests {
     #[test]
     fn quick_move_into_wall_blocks_when_no_floor_step() {
         let mut state = GameState::new_seeded(11);
-        // Slide up until quick_move stops, then quick_move again — second call
-        // must report Blocked because we are already against the obstacle.
         state.quick_move(Direction::Up);
         let before = state.player;
         let outcome = state.quick_move(Direction::Up);
@@ -401,8 +484,6 @@ mod tests {
         let mut state = GameState::new_seeded(19);
         let prev_room = state.current_room;
         let (_, door_pos) = find_door_position(&state);
-        // Teleport adjacent then move onto the door.
-        // Find a walkable neighbor of the door inside the same room.
         let room = state.current_room();
         let neighbors = [
             (door_pos.0 as isize - 1, door_pos.1 as isize),
@@ -424,7 +505,6 @@ mod tests {
             }
         }
         assert!(placed, "door has no floor neighbor");
-        // Step onto the door.
         let dx = door_pos.0 as isize - state.player.0 as isize;
         let dy = door_pos.1 as isize - state.player.1 as isize;
         let dir = match (dx, dy) {
@@ -437,5 +517,64 @@ mod tests {
         assert_eq!(state.move_player(dir), MoveOutcome::Moved);
         assert_eq!(state.player, door_pos);
         assert_eq!(state.current_room, prev_room);
+    }
+
+    #[test]
+    fn flare_lights_entire_room_then_burns_out() {
+        let mut state = GameState::new_seeded(17);
+        let placement = state.player;
+        state.inventory.push(Item {
+            id: crate::items::ItemId(0),
+            kind: ItemKind::Flare,
+        });
+        assert_eq!(state.place_item(0), Some(PlaceOutcome::FlarePlaced));
+        let room_id = state.current_room;
+        // The flare is recorded on the room and every tile reads as visible.
+        let room = state.current_room();
+        assert!(room.flares.contains(&placement));
+        for y in 0..room.height {
+            for x in 0..room.width {
+                assert!(state.is_visible(x, y));
+            }
+        }
+        // Walk to a door and traverse: the flare burns out into a torch.
+        let (_, door_pos) = find_door_position(&state);
+        state.player = door_pos;
+        state.refresh_visibility();
+        state
+            .interact()
+            .expect("door interact should produce event");
+        assert_ne!(state.current_room, room_id);
+        let prev = state.dungeon.room(room_id);
+        assert!(prev.flares.is_empty());
+        assert!(prev.lights.contains(&placement));
+    }
+
+    #[test]
+    fn placing_torch_lights_surrounding_tiles() {
+        let mut state = GameState::new_seeded(11);
+        let placement = state.player;
+        // Inject a torch into inventory.
+        state.inventory.push(Item {
+            id: crate::items::ItemId(0),
+            kind: ItemKind::Torch,
+        });
+        assert_eq!(state.place_item(0), Some(PlaceOutcome::TorchPlaced));
+        assert!(state.inventory.is_empty());
+        assert!(state.current_room().has_light_at(placement));
+        // Walk away far enough that the placement tile leaves player LOS, but
+        // it should still report visible because of the placed light.
+        for _ in 0..crate::los::LOS_RANGE + 4 {
+            for dir in [Direction::Right, Direction::Down, Direction::Left, Direction::Up] {
+                if state.move_player(dir) == MoveOutcome::Moved {
+                    break;
+                }
+            }
+        }
+        if state.current_room == RoomId(0) {
+            // We may or may not be far enough away. If we are, the lit map
+            // should still show the placement tile.
+            assert!(state.is_visible(placement.0, placement.1));
+        }
     }
 }

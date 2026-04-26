@@ -1,6 +1,7 @@
 pub mod accel;
 pub mod colors;
 mod gameplay;
+mod inventory;
 pub mod layout;
 mod main_menu;
 mod name_entry;
@@ -47,6 +48,10 @@ pub fn render(frame: &mut Frame, app: &App) {
         }
         Screen::Playing(state) => {
             gameplay::render(frame, state, None, &scheme_colors);
+        }
+        Screen::Inventory { game, cursor, status } => {
+            gameplay::render(frame, game, status.text(), &scheme_colors);
+            inventory::render(frame, game, *cursor, &scheme_colors.menu);
         }
         Screen::Paused { game, menu, status } => {
             gameplay::render(frame, game, status.text(), &scheme_colors);

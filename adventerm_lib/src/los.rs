@@ -1,6 +1,14 @@
 use crate::room::{Room, TileKind};
 
-pub const LOS_RANGE: usize = 6;
+/// Player line-of-sight radius. Doubled from the original 6 so the player can
+/// see meaningfully more of a room at once. Light sources use [`LIGHT_RANGE`]
+/// instead, which is the smaller historical value.
+pub const LOS_RANGE: usize = 12;
+
+/// Radius used by persistent light sources (wall lights, placed torches).
+/// Matches `LOS_RANGE` so a torch or wall light reveals the same disc the
+/// player would see standing on that tile.
+pub const LIGHT_RANGE: usize = LOS_RANGE;
 
 /// Terminal cells are roughly twice as tall as they are wide, so a literal
 /// `dx² + dy²` disc looks like a vertical ellipse on screen. Scaling dy by
@@ -8,14 +16,25 @@ pub const LOS_RANGE: usize = 6;
 /// appears round to the player.
 pub const CELL_ASPECT_Y_OVER_X: f32 = 2.0;
 
-/// Recompute currently-visible tiles for `room` from `origin`.
+/// Recompute currently-visible tiles for `room` from `origin` at the player's
+/// vision range. Thin wrapper around [`compute_visible_with_radius`].
+pub fn compute_visible(room: &Room, origin: (usize, usize), out: &mut Vec<bool>) {
+    compute_visible_with_radius(room, origin, LOS_RANGE, out);
+}
+
+/// Recompute visible tiles from `origin` within Euclidean distance `radius`.
 ///
 /// Resizes/clears `out` to `room.width * room.height` and writes a `bool` per
 /// tile (row-major, matching `Room::idx`). The origin is always visible. For
-/// each tile within Euclidean distance `LOS_RANGE`, a Bresenham line is walked
-/// from origin outward; the endpoint is visible if no *intermediate* tile is a
+/// each tile within the aspect-corrected disc, a Bresenham line is walked from
+/// origin outward; the endpoint is visible if no *intermediate* tile is a
 /// wall. Endpoint walls remain visible — you see the wall, not past it.
-pub fn compute_visible(room: &Room, origin: (usize, usize), out: &mut Vec<bool>) {
+pub fn compute_visible_with_radius(
+    room: &Room,
+    origin: (usize, usize),
+    radius: usize,
+    out: &mut Vec<bool>,
+) {
     let len = room.width * room.height;
     out.clear();
     out.resize(len, false);
@@ -26,12 +45,16 @@ pub fn compute_visible(room: &Room, origin: (usize, usize), out: &mut Vec<bool>)
     }
     out[room.idx(ox, oy)] = true;
 
-    let y_radius = (LOS_RANGE as f32 / CELL_ASPECT_Y_OVER_X).ceil() as usize;
-    let lo_x = ox.saturating_sub(LOS_RANGE);
+    if radius == 0 || room.width == 0 || room.height == 0 {
+        return;
+    }
+
+    let y_radius = (radius as f32 / CELL_ASPECT_Y_OVER_X).ceil() as usize;
+    let lo_x = ox.saturating_sub(radius);
     let lo_y = oy.saturating_sub(y_radius);
-    let hi_x = (ox + LOS_RANGE).min(room.width - 1);
+    let hi_x = (ox + radius).min(room.width - 1);
     let hi_y = (oy + y_radius).min(room.height - 1);
-    let r2 = (LOS_RANGE as f32) * (LOS_RANGE as f32);
+    let r2 = (radius as f32) * (radius as f32);
 
     for ty in lo_y..=hi_y {
         for tx in lo_x..=hi_x {
@@ -104,24 +127,34 @@ mod tests {
 
     #[test]
     fn origin_is_always_visible() {
-        let room = open_room(15, 15);
-        let v = vis(&room, (7, 7));
-        assert!(v[room.idx(7, 7)]);
+        let room = open_room(30, 30);
+        let v = vis(&room, (15, 15));
+        assert!(v[room.idx(15, 15)]);
     }
 
     #[test]
     fn range_is_aspect_corrected_disc() {
-        let room = open_room(20, 20);
-        let v = vis(&room, (10, 10));
+        let room = open_room(40, 40);
+        let v = vis(&room, (20, 20));
         // Horizontal axis: full LOS_RANGE tiles reachable.
-        assert!(v[room.idx(16, 10)]);
-        assert!(!v[room.idx(17, 10)]);
+        let r = LOS_RANGE;
+        assert!(v[room.idx(20 + r, 20)]);
+        assert!(!v[room.idx(20 + r + 1, 20)]);
         // Vertical axis: dy is stretched ×2 in the distance check, so only
-        // ~3 tiles up/down stay inside the disc.
-        assert!(v[room.idx(10, 13)]);
-        assert!(!v[room.idx(10, 14)]);
-        // A short-and-wide diagonal stays inside the visual circle.
-        assert!(v[room.idx(14, 12)]);
+        // ~r/2 tiles up/down stay inside the disc.
+        let half = r / 2;
+        assert!(v[room.idx(20, 20 + half)]);
+        assert!(!v[room.idx(20, 20 + half + 1)]);
+    }
+
+    #[test]
+    fn light_range_matches_player_range() {
+        assert_eq!(LIGHT_RANGE, LOS_RANGE);
+        let room = open_room(40, 40);
+        let mut out = Vec::new();
+        compute_visible_with_radius(&room, (20, 20), LIGHT_RANGE, &mut out);
+        assert!(out[room.idx(20 + LIGHT_RANGE, 20)]);
+        assert!(!out[room.idx(20 + LIGHT_RANGE + 1, 20)]);
     }
 
     #[test]

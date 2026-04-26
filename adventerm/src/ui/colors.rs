@@ -59,6 +59,13 @@ pub struct WorldColors {
     pub memory_floor: Color,
     pub memory_wall: Color,
     pub memory_interactive: Color,
+    /// Lit decorations (wall lights, placed torches). Warm so they read as
+    /// "light source" against the cooler floor/wall palette.
+    pub light: Color,
+    pub memory_light: Color,
+    /// Items resting on the floor.
+    pub item: Color,
+    pub memory_item: Color,
 }
 
 fn dim(rgb: crate::config::Rgb) -> Color {
@@ -67,6 +74,12 @@ fn dim(rgb: crate::config::Rgb) -> Color {
     let b = (rgb[2] as f32 * MEMORY_DIM_FACTOR) as u8;
     rgb_to_color([r, g, b])
 }
+
+/// Warm yellow used for light sources. Hardcoded (not pulled from the scheme
+/// JSON) so existing color schemes keep working without a schema bump.
+const LIGHT_RGB: crate::config::Rgb = [255, 200, 80];
+/// Pale cyan for ground items — distinct from doors/lights.
+const ITEM_RGB: crate::config::Rgb = [120, 220, 220];
 
 impl WorldColors {
     pub fn from_palette(p: &WorldPalette) -> Self {
@@ -79,6 +92,10 @@ impl WorldColors {
             memory_floor: dim(p.floor),
             memory_wall: dim(p.wall),
             memory_interactive: dim(p.interactive),
+            light: rgb_to_color(LIGHT_RGB),
+            memory_light: dim(LIGHT_RGB),
+            item: rgb_to_color(ITEM_RGB),
+            memory_item: dim(ITEM_RGB),
         }
     }
 }

@@ -21,6 +21,11 @@ pub enum Screen {
         status: Status,
     },
     Playing(GameState),
+    Inventory {
+        game: GameState,
+        cursor: usize,
+        status: Status,
+    },
     Paused {
         game: GameState,
         menu: MenuState<PauseMenuOption>,
@@ -125,6 +130,7 @@ impl App {
             Screen::MainMenu { .. } => self.handle_main_menu(action),
             Screen::LoadGame { .. } => self.handle_load_game(action),
             Screen::Playing(_) => self.handle_playing(action),
+            Screen::Inventory { .. } => self.handle_inventory(action),
             Screen::Paused { .. } => self.handle_pause_menu(action),
             Screen::SaveSlotPicker { .. } => self.handle_slot_picker(action),
             Screen::Options { .. } => self.handle_options(action),
@@ -369,6 +375,7 @@ impl App {
         match &mut self.screen {
             Screen::MainMenu { status, .. }
             | Screen::LoadGame { status, .. }
+            | Screen::Inventory { status, .. }
             | Screen::Paused { status, .. }
             | Screen::SaveSlotPicker { status, .. }
             | Screen::NameEntry { status, .. }
@@ -409,7 +416,22 @@ impl App {
                 state.quick_move(Direction::Right);
             }
             Action::Confirm => {
-                state.interact();
+                if state.player_on_door().is_some() {
+                    state.interact();
+                } else if state.items_here() {
+                    state.pick_up_here();
+                }
+            }
+            Action::Inventory => {
+                let Screen::Playing(game) = std::mem::replace(&mut self.screen, Screen::Quit)
+                else {
+                    return;
+                };
+                self.screen = Screen::Inventory {
+                    game,
+                    cursor: 0,
+                    status: Status::None,
+                };
             }
             Action::Escape => {
                 let Screen::Playing(game) = std::mem::replace(&mut self.screen, Screen::Quit)
@@ -421,6 +443,43 @@ impl App {
                     menu: MenuState::new(PauseMenuOption::ALL.to_vec()),
                     status: Status::None,
                 };
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_inventory(&mut self, action: Action) {
+        let Screen::Inventory { game, cursor, .. } = &mut self.screen else {
+            return;
+        };
+        let len = game.inventory.len();
+        match action {
+            Action::Up if *cursor > 0 => {
+                *cursor -= 1;
+            }
+            Action::Down if *cursor + 1 < len => {
+                *cursor += 1;
+            }
+            Action::Confirm => {
+                if len == 0 {
+                    return;
+                }
+                let slot = (*cursor).min(len - 1);
+                let _ = game.place_item(slot);
+                let Screen::Inventory { game, .. } =
+                    std::mem::replace(&mut self.screen, Screen::Quit)
+                else {
+                    return;
+                };
+                self.screen = Screen::Playing(game);
+            }
+            Action::Inventory | Action::Escape => {
+                let Screen::Inventory { game, .. } =
+                    std::mem::replace(&mut self.screen, Screen::Quit)
+                else {
+                    return;
+                };
+                self.screen = Screen::Playing(game);
             }
             _ => {}
         }

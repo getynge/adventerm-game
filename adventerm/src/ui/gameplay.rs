@@ -51,23 +51,7 @@ fn render_world(frame: &mut Frame, state: &GameState, area: Rect, colors: &Schem
         let mut spans: Vec<Span> = Vec::with_capacity(view_w as usize);
         for x in off_x..off_x + view_w {
             let (tx, ty) = (x as usize, y as usize);
-            let (glyph, fg) = if state.is_visible(tx, ty) {
-                match state.tile_at(tx, ty) {
-                    Tile::Player => ('@', colors.world.player),
-                    Tile::Door => ('+', colors.world.interactive),
-                    Tile::Floor => ('.', colors.world.floor),
-                    Tile::Wall => ('#', colors.world.wall),
-                }
-            } else if state.is_explored(tx, ty) {
-                match state.terrain_at(tx, ty) {
-                    Tile::Door => ('+', colors.world.memory_interactive),
-                    Tile::Floor => ('.', colors.world.memory_floor),
-                    Tile::Wall => ('#', colors.world.memory_wall),
-                    Tile::Player => (' ', world_bg),
-                }
-            } else {
-                (' ', world_bg)
-            };
+            let (glyph, fg) = pick_glyph(state, tx, ty, colors, world_bg);
             spans.push(Span::styled(
                 glyph.to_string(),
                 Style::default().fg(fg).bg(world_bg),
@@ -83,6 +67,54 @@ fn render_world(frame: &mut Frame, state: &GameState, area: Rect, colors: &Schem
             .style(Style::default().bg(world_bg)),
         viewport,
     );
+}
+
+/// Pick the glyph and color for tile `(tx, ty)`. Lights and ground items are
+/// overlaid on top of terrain when the tile is visible (or remembered, in
+/// memory colors). The player overlay always wins.
+fn pick_glyph(
+    state: &GameState,
+    tx: usize,
+    ty: usize,
+    colors: &SchemeColors,
+    world_bg: ratatui::style::Color,
+) -> (char, ratatui::style::Color) {
+    let visible = state.is_visible(tx, ty);
+    let explored = state.is_explored(tx, ty);
+    if !visible && !explored {
+        return (' ', world_bg);
+    }
+    if (tx, ty) == state.player {
+        return ('@', colors.world.player);
+    }
+    let room = state.current_room();
+    if visible {
+        if room.has_light_at((tx, ty)) {
+            return ('*', colors.world.light);
+        }
+        if let Some(item) = room.items_at((tx, ty)).next() {
+            return (item.kind.glyph(), colors.world.item);
+        }
+        match state.tile_at(tx, ty) {
+            Tile::Player => ('@', colors.world.player),
+            Tile::Door => ('+', colors.world.interactive),
+            Tile::Floor => ('.', colors.world.floor),
+            Tile::Wall => ('#', colors.world.wall),
+        }
+    } else {
+        if room.has_light_at((tx, ty)) {
+            return ('*', colors.world.memory_light);
+        }
+        if let Some(item) = room.items_at((tx, ty)).next() {
+            return (item.kind.glyph(), colors.world.memory_item);
+        }
+        match state.terrain_at(tx, ty) {
+            Tile::Door => ('+', colors.world.memory_interactive),
+            Tile::Floor => ('.', colors.world.memory_floor),
+            Tile::Wall => ('#', colors.world.memory_wall),
+            Tile::Player => (' ', world_bg),
+        }
+    }
 }
 
 /// Pick a scroll origin so the player sits near the centre of the viewport,
@@ -112,6 +144,11 @@ fn render_dialog(
             "Press Enter to open door",
             colors.body_style(),
         )));
+    } else if let Some(item) = state.peek_item_here() {
+        lines.push(Line::from(Span::styled(
+            format!("Press Enter to pick up {}", item.kind.name()),
+            colors.body_style(),
+        )));
     }
     if let Some(msg) = status {
         lines.push(Line::from(Span::styled(
@@ -133,7 +170,9 @@ fn render_actions(frame: &mut Frame, area: Rect, colors: &crate::ui::colors::Men
         Line::from("Move: WASD"),
         Line::from("      / arrows"),
         Line::from(""),
-        Line::from("Interact: Enter"),
+        Line::from("Use: Enter"),
+        Line::from(""),
+        Line::from("Inventory: Tab"),
         Line::from(""),
         Line::from("Pause: Esc"),
     ];

@@ -15,6 +15,7 @@ pub enum Action {
     Confirm,
     Escape,
     Delete,
+    Inventory,
     Hotkey(char),
 }
 
@@ -48,6 +49,9 @@ pub fn translate(event: &Event, binds: &KeybindMap) -> Option<Action> {
             BoundAction::Escape => Action::Escape,
             BoundAction::Delete => Action::Delete,
         });
+    }
+    if matches!(key.code, KeyCode::Tab) {
+        return Some(Action::Inventory);
     }
     if let KeyCode::Char(c) = key.code {
         return Some(Action::Hotkey(c));
