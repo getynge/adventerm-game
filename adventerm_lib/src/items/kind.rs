@@ -21,12 +21,3 @@ impl ItemKind {
         }
     }
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct ItemId(pub u32);
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Item {
-    pub id: ItemId,
-    pub kind: ItemKind,
-}

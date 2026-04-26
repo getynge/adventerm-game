@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::dungeon::{step_inward, Dungeon};
-use crate::items::{Item, ItemKind};
-use crate::los;
+use crate::items::{self, ItemKind, PlaceCtx};
 use crate::room::{DoorId, Room, RoomId, TileKind};
+use crate::visibility;
 use crate::world::{Direction, Tile};
 
 fn step(direction: Direction, x: usize, y: usize) -> (isize, isize) {
@@ -30,15 +30,7 @@ pub struct DoorEvent {
     pub new_room: RoomId,
 }
 
-/// Result of placing an item from inventory.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PlaceOutcome {
-    /// A torch was placed at the player's tile.
-    TorchPlaced,
-    /// A flare was lit; the entire current room is illuminated until the
-    /// player leaves.
-    FlarePlaced,
-}
+pub use crate::items::PlaceOutcome;
 
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct GameState {
@@ -48,7 +40,7 @@ pub struct GameState {
     #[serde(default)]
     pub explored: HashMap<RoomId, Vec<bool>>,
     #[serde(default)]
-    pub inventory: Vec<Item>,
+    pub inventory: Vec<ItemKind>,
     #[serde(skip)]
     visible: Vec<bool>,
     /// Cached "tile is within some persistent light's reach" bitmap for the
@@ -147,45 +139,36 @@ impl GameState {
 
     /// First item resting on the player's tile, if any. Used by the renderer
     /// to surface a pickup prompt.
-    pub fn peek_item_here(&self) -> Option<&Item> {
+    pub fn peek_item_here(&self) -> Option<ItemKind> {
         self.current_room().items_at(self.player).next()
     }
 
     /// Pick up one item at the player's tile, push it into the inventory,
     /// return it for status reporting. Returns `None` if no item is here.
-    pub fn pick_up_here(&mut self) -> Option<Item> {
+    pub fn pick_up_here(&mut self) -> Option<ItemKind> {
         let pos = self.player;
-        let room_id = self.current_room;
-        let item = self.dungeon.room_mut(room_id).take_item_at(pos)?;
-        self.inventory.push(item.clone());
-        Some(item)
+        let room = self.dungeon.room_mut(self.current_room);
+        let kind = room.items.take_at(&mut room.world, pos)?;
+        self.inventory.push(kind);
+        Some(kind)
     }
 
-    /// Place the inventory item at `slot` onto the world. Currently only
-    /// `Torch` is placeable: its position is appended to the current room's
-    /// `lights`, permanently illuminating the LOS disc around the placement
-    /// tile.
+    /// Place the inventory item at `slot` onto the world by dispatching to
+    /// the kind's `ItemBehavior`. `GameState` deliberately does **not** match
+    /// on `ItemKind` — the registry in `items::behavior_for` owns that.
     pub fn place_item(&mut self, slot: usize) -> Option<PlaceOutcome> {
-        if slot >= self.inventory.len() {
-            return None;
-        }
-        let item = &self.inventory[slot];
-        let pos = self.player;
-        let room_id = self.current_room;
-        match item.kind {
-            ItemKind::Torch => {
-                self.dungeon.room_mut(room_id).add_light(pos);
-                self.inventory.remove(slot);
-                self.refresh_visibility();
-                Some(PlaceOutcome::TorchPlaced)
-            }
-            ItemKind::Flare => {
-                self.dungeon.room_mut(room_id).add_flare(pos);
-                self.inventory.remove(slot);
-                self.refresh_visibility();
-                Some(PlaceOutcome::FlarePlaced)
-            }
-        }
+        let kind = *self.inventory.get(slot)?;
+        let player_pos = self.player;
+        let room = self.dungeon.room_mut(self.current_room);
+        let mut ctx = PlaceCtx {
+            player_pos,
+            world: &mut room.world,
+            lighting: &mut room.lighting,
+        };
+        let outcome = items::behavior_for(kind).on_place(&mut ctx);
+        self.inventory.remove(slot);
+        self.refresh_visibility();
+        Some(outcome)
     }
 
     pub fn move_player(&mut self, direction: Direction) -> MoveOutcome {
@@ -247,7 +230,7 @@ impl GameState {
         // Leaving the current room: any active flares burn out into regular
         // torches before we move on.
         let leaving_room = self.current_room;
-        self.dungeon.room_mut(leaving_room).burn_out_flares();
+        self.dungeon.room_mut(leaving_room).lighting.burn_out_flares();
         self.current_room = target_room;
         self.player = landing;
         self.refresh_visibility();
@@ -261,36 +244,14 @@ impl GameState {
     /// Recompute `visible` and `lit` for the current room and OR them into
     /// `explored`. Call after any state change that affects what the player
     /// can see (movement, room transition, light placement, post-deserialize
-    /// rehydration).
+    /// rehydration). The lighting computation lives in `visibility.rs`.
     pub fn refresh_visibility(&mut self) {
         let room_id = self.current_room;
-        let (width, height, player) = {
-            let room = self.current_room();
-            (room.width, room.height, self.player)
-        };
-        let len = width * height;
-
+        let player = self.player;
         let room = self.dungeon.room(room_id);
-        los::compute_visible(room, player, &mut self.visible);
+        let len = room.width * room.height;
 
-        // Combine all persistent lights into self.lit. Active flares
-        // illuminate every tile in the room.
-        self.lit.clear();
-        self.lit.resize(len, false);
-        if !room.flares.is_empty() {
-            for v in self.lit.iter_mut() {
-                *v = true;
-            }
-        }
-        let mut tmp: Vec<bool> = Vec::new();
-        for &light_pos in &room.lights {
-            los::compute_visible_with_radius(room, light_pos, los::LIGHT_RANGE, &mut tmp);
-            for (dst, src) in self.lit.iter_mut().zip(tmp.iter()) {
-                if *src {
-                    *dst = true;
-                }
-            }
-        }
+        visibility::compute_room_lighting(room, player, &mut self.visible, &mut self.lit);
 
         let memory = self.explored.entry(room_id).or_insert_with(|| vec![false; len]);
         if memory.len() != len {
@@ -523,15 +484,12 @@ mod tests {
     fn flare_lights_entire_room_then_burns_out() {
         let mut state = GameState::new_seeded(17);
         let placement = state.player;
-        state.inventory.push(Item {
-            id: crate::items::ItemId(0),
-            kind: ItemKind::Flare,
-        });
+        state.inventory.push(ItemKind::Flare);
         assert_eq!(state.place_item(0), Some(PlaceOutcome::FlarePlaced));
         let room_id = state.current_room;
         // The flare is recorded on the room and every tile reads as visible.
         let room = state.current_room();
-        assert!(room.flares.contains(&placement));
+        assert!(room.lighting.any_flare_active());
         for y in 0..room.height {
             for x in 0..room.width {
                 assert!(state.is_visible(x, y));
@@ -546,8 +504,8 @@ mod tests {
             .expect("door interact should produce event");
         assert_ne!(state.current_room, room_id);
         let prev = state.dungeon.room(room_id);
-        assert!(prev.flares.is_empty());
-        assert!(prev.lights.contains(&placement));
+        assert!(!prev.lighting.any_flare_active());
+        assert!(prev.has_light_at(placement));
     }
 
     #[test]
@@ -555,10 +513,7 @@ mod tests {
         let mut state = GameState::new_seeded(11);
         let placement = state.player;
         // Inject a torch into inventory.
-        state.inventory.push(Item {
-            id: crate::items::ItemId(0),
-            kind: ItemKind::Torch,
-        });
+        state.inventory.push(ItemKind::Torch);
         assert_eq!(state.place_item(0), Some(PlaceOutcome::TorchPlaced));
         assert!(state.inventory.is_empty());
         assert!(state.current_room().has_light_at(placement));

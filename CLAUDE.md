@@ -18,6 +18,33 @@ These are load-bearing constraints for this project. Honor them when adding feat
 3. **Core gameplay layout is fixed.** During core gameplay the screen has three regions: a large central window (the world), a short window beneath it for dialog/game information, and a narrow tall window to the right for player actions/options. This rule applies *only* to core gameplay — main menu, pause menu, inventory, and other interface screens are not bound by this layout.
 4. **UI-only state stays in the binary.** State that exists purely to drive rendering (e.g. menu cursor positions, scroll offsets, animation timers) belongs to `adventerm`, not the library. The library should expose available options/data; the binary decides how the user navigates them.
 
+## Gameplay constructs (ECS + behaviors)
+
+Gameplay constructs (items, lights, flares, future monsters/traps) are modeled as **entities** with **components**, organized into **subsystems**, and driven by **behavior traits**. `GameState` is intentionally ignorant of any specific construct's mechanics — its job is dispatch, not enumeration.
+
+**Layers:**
+1. `ecs::World` — the substrate. Owns `EntityId` allocation, lifetime, and the universal `Position` component. **Do not add per-category fields to `World`.** If you find yourself wanting to put `monsters` on `World`, write a `Monsters` subsystem instead.
+2. **Subsystems** (e.g. `lighting::Lighting`, `items::ItemSubsystem`, future `Monsters`) own category-specific state built from `ecs::ComponentStore<T>` and expose a focused write API (`add_torch`, `spawn_at`, `burn_out_flares`, ...). Subsystems live as fields on `Room` (or on `GameState` for global state).
+3. **Behavior traits** (e.g. `items::ItemBehavior`) define what a player action does. The trait method receives a `*Ctx` struct that borrows only the subsystems it legitimately needs. Per-kind impls live in their own module as zero-sized types and are looked up by a single `behavior_for(kind) -> &'static dyn Trait` match.
+
+**How to add a new item kind:**
+1. Add the variant to `ItemKind` in [adventerm_lib/src/items/kind.rs](adventerm_lib/src/items/kind.rs) (and update `name()` / `glyph()`).
+2. Add a new file under `adventerm_lib/src/items/` containing a ZST struct that `impl ItemBehavior`.
+3. Add one arm to `behavior_for` in [adventerm_lib/src/items/behavior.rs](adventerm_lib/src/items/behavior.rs). The compiler will refuse to compile until you do.
+4. If the new behavior needs a side-effect not yet covered, extend `ItemBehavior` with a new method (give it a default impl so existing kinds opt in by silence) or add a new field to `PlaceCtx` referencing an existing/new subsystem.
+
+**How to add a new gameplay-construct category** (e.g. monsters):
+1. Create `adventerm_lib/src/<category>/mod.rs` with a subsystem struct holding `ComponentStore<...>` fields. Expose an explicit, narrow write API.
+2. Add the subsystem as a field on `Room` (room-scoped) or `GameState` (global).
+3. If the binary needs to read it, add thin facade methods on `Room`/`GameState` rather than exposing the subsystem fields directly to render code.
+4. If players or other constructs interact with it, define a behavior trait in the same module and dispatch through a `behavior_for`-style match.
+
+**What `GameState` is allowed to do:**
+- Hold a `World`/inventory and route actions to the right subsystem or behavior.
+- **Not** match on `ItemKind` or any other construct's discriminant. If you write `match item.kind` (or equivalent) in `game.rs`, the logic belongs in a behavior impl instead.
+
+**What the binary may know:** the existing read-only facades on `Room`/`GameState` (`items_at`, `has_item_at`, `peek_item_here`, `has_light_at`, ...). It must not import subsystem types or `World` for rendering — keep the lib/binary boundary clean.
+
 ## Reference docs
 
 Before planning a new feature or non-trivial change, read [agents/README.md](agents/README.md) and the relevant doc(s) it indexes — they map the codebase's modules, screen state machine, and reusable patterns. Reach for an existing helper from [agents/patterns.md](agents/patterns.md) before introducing a new abstraction.

@@ -54,7 +54,8 @@ Status messages on each screen are an enum (`Status::None | Info | Error`) clear
 
 What crosses (library types used in the binary):
 
-- [`GameState`](../adventerm_lib/src/game.rs), [`MoveOutcome`](../adventerm_lib/src/game.rs), [`DoorEvent`](../adventerm_lib/src/game.rs)
+- [`GameState`](../adventerm_lib/src/game.rs), [`MoveOutcome`](../adventerm_lib/src/game.rs), [`DoorEvent`](../adventerm_lib/src/game.rs), [`PlaceOutcome`](../adventerm_lib/src/items/behavior.rs)
+- [`ItemKind`](../adventerm_lib/src/items/kind.rs) — used by the inventory renderer for `name()` / `glyph()`
 - [`Direction`](../adventerm_lib/src/world.rs), [`Tile`](../adventerm_lib/src/world.rs) — `Tile` is the only rendering primitive the library exposes
 - [`Save`](../adventerm_lib/src/save.rs), [`SaveSlot`](../adventerm_lib/src/save.rs), [`SaveError`](../adventerm_lib/src/save.rs), [`SAVE_VERSION`](../adventerm_lib/src/save.rs), `slugify`, `slot_path`, `list_saves`, `delete_save`
 - [`RoomId`](../adventerm_lib/src/room.rs), [`DoorId`](../adventerm_lib/src/room.rs), [`TileKind`](../adventerm_lib/src/room.rs) — used indirectly through `Tile` queries and door interaction
@@ -64,11 +65,12 @@ What must not cross:
 - `ratatui`/`crossterm` types (no key codes, colors, rects in the library API)
 - Layout constants, popup sizes, color palettes
 - Menu cursor positions, scroll offsets, status strings
+- ECS substrate (`World`, `EntityId`, `ComponentStore`) and subsystem types (`Lighting`, `ItemSubsystem`) — these are library internals; the binary reads gameplay state through `Room`/`GameState` facades only
 
 If you find yourself reaching for a `KeyCode` in the library or a `Dungeon` field in a renderer, that's a signal the design is bending around the boundary — restructure instead.
 
 ## Determinism and persistence
 
 - Dungeon generation is fully seeded (xorshift `Rng`); same seed → identical dungeon.
-- Saves are JSON with a version field (`SAVE_VERSION = 2`); load rejects mismatches cleanly.
+- Saves are JSON with a version field (`SAVE_VERSION = 5`); load rejects mismatches cleanly.
 - Config (keybinds + active scheme) is JSON at `{save_dir}/config.json`; user-defined color schemes live in `{save_dir}/schemes/*.json`.

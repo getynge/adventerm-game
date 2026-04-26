@@ -35,7 +35,7 @@ pub fn render(frame: &mut Frame, game: &GameState, cursor: usize, colors: &MenuC
             Style::default().fg(colors.text).bg(colors.background),
         )));
     } else {
-        for (i, item) in game.inventory.iter().enumerate() {
+        for (i, kind) in game.inventory.iter().enumerate() {
             let marker = if i == cursor { '>' } else { ' ' };
             let style = if i == cursor {
                 colors.cursor_style()
@@ -43,7 +43,7 @@ pub fn render(frame: &mut Frame, game: &GameState, cursor: usize, colors: &MenuC
                 colors.body_style()
             };
             lines.push(Line::from(Span::styled(
-                format!("{} {}", marker, item.kind.name()),
+                format!("{} {}", marker, kind.name()),
                 style,
             )));
         }

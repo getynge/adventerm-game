@@ -4,30 +4,57 @@ Pure gameplay logic. No `ratatui`/`crossterm` imports. Serde for serialization, 
 
 ## Public surface
 
-Re-exported from [lib.rs](../adventerm_lib/src/lib.rs): `Dungeon`, `Door`, `GameState`, `DoorEvent`, `MoveOutcome`, `Room`, `RoomId`, `DoorId`, `TileKind`, `Direction`, `Tile`, `Save`, `SaveError`, `SaveSlot`, `SAVE_VERSION`, `LOS_RANGE`.
+Re-exported from [lib.rs](../adventerm_lib/src/lib.rs): `Dungeon`, `Door`, `GameState`, `DoorEvent`, `MoveOutcome`, `PlaceOutcome`, `ItemKind`, `EntityId`, `World`, `Room`, `RoomId`, `DoorId`, `TileKind`, `Direction`, `Tile`, `Save`, `SaveError`, `SaveSlot`, `SAVE_VERSION`, `LIGHT_RANGE`, `LOS_RANGE`.
 
 ## Modules
 
 ### [game.rs](../adventerm_lib/src/game.rs) — gameplay state
 
-- `GameState` — owns `Dungeon`, current `RoomId`, player `(x, y)`, `explored: HashMap<RoomId, Vec<bool>>` (per-room memory of seen tiles), and a transient `visible` bitmap (`#[serde(skip)]`, rehydrated by `Save::from_bytes`). Constructed via `GameState::new_seeded(seed)`.
+- `GameState` — owns `Dungeon`, current `RoomId`, player `(x, y)`, `explored: HashMap<RoomId, Vec<bool>>` (per-room memory of seen tiles), `inventory: Vec<ItemKind>`, and transient `visible`/`lit` bitmaps (`#[serde(skip)]`, rehydrated by `Save::from_bytes`). Constructed via `GameState::new_seeded(seed)`.
 - `MoveOutcome::{Blocked, Moved}` — return type of movement attempts.
-- `DoorEvent { from, to, room }` — door transition record.
+- `DoorEvent { from, to, new_room }` — door transition record.
+- `PlaceOutcome` — re-exported from `items::PlaceOutcome`. Returned by `place_item` so the binary can surface a status message; `GameState` does not match on `ItemKind`.
 
 Key methods:
 
 - `current_room() -> &Room`
-- `tile_at(x, y) -> Tile` — for renderers; returns `Wall | Floor | Door | Player` (with player overlay).
-- `terrain_at(x, y) -> Tile` — same as `tile_at` minus the player overlay; used to render remembered (out-of-LOS) tiles.
-- `is_visible(x, y) -> bool` — currently in LOS (Euclidean radius `LOS_RANGE`, walls block).
-- `is_explored(x, y) -> bool` — the player has seen this tile in the current room at least once.
-- `player_on_door() -> Option<DoorId>` — UI uses this to show "Press Enter to open door"
-- `move_player(direction) -> MoveOutcome` — single step with collision; on a successful move, recomputes visibility.
-- `quick_move(direction) -> MoveOutcome` — slide until wall/door/boundary; **stops one tile before doors** (no accidental traversal); refreshes visibility on a successful slide.
-- `interact() -> Option<DoorEvent>` — only way to traverse a door; refreshes visibility for the destination room.
-- `refresh_visibility()` — public so that `Save::from_bytes` can rehydrate the transient visible bitmap; otherwise called internally after every state change.
+- `tile_at(x, y) -> Tile` / `terrain_at(x, y) -> Tile` — for renderers (with/without the player overlay).
+- `is_visible(x, y) -> bool` — currently lit by player LOS or any persistent light in the current room.
+- `is_explored(x, y) -> bool` — seen at least once in the current room.
+- `player_on_door() -> Option<DoorId>` — for "Press Enter to open door" prompts.
+- `move_player(direction) -> MoveOutcome` / `quick_move(direction) -> MoveOutcome` — quick_move stops one tile before doors.
+- `interact() -> Option<DoorEvent>` — the only way to traverse a door. Calls `room.lighting.burn_out_flares()` on the leaving room, then refreshes visibility for the destination.
+- `items_here() -> bool`, `peek_item_here() -> Option<ItemKind>`, `pick_up_here() -> Option<ItemKind>` — inventory pickup pipeline (delegates to `room.items: ItemSubsystem`).
+- `place_item(slot) -> Option<PlaceOutcome>` — dispatches to `items::behavior_for(kind).on_place(...)`. **No `match ItemKind` lives in `game.rs`.**
+- `refresh_visibility()` — wraps `visibility::compute_room_lighting`; public so `Save::from_bytes` can rehydrate.
 
 Invariants: walls and out-of-bounds block. Player may stand on a door tile but only `interact()` changes rooms. The player's tile is always visible (and therefore always explored).
+
+### [ecs/mod.rs](../adventerm_lib/src/ecs/mod.rs) — entity substrate
+
+- `EntityId(u32)` — opaque entity handle.
+- `World { positions, ... }` — owns `EntityId` allocation, the live-entity set, and the universal `Position` component. `spawn`, `despawn`, `is_alive`, `position_of`, `set_position`. **Per-category state lives in subsystems, not here.**
+- `Position((usize, usize))` — universal positional component.
+- `ComponentStore<T>` — generic sparse storage (`HashMap<EntityId, T>`). The reusable building block subsystems compose from.
+
+### [lighting/mod.rs](../adventerm_lib/src/lighting/mod.rs) — lighting subsystem
+
+- `LightSource { radius: u8 }`, `FlareSource` (marker).
+- `Lighting { sources: ComponentStore<LightSource>, flares: ComponentStore<FlareSource> }`.
+- Methods: `add_torch`, `add_flare` (idempotent on position), `burn_out_flares` (flares → sources at the same entity), `any_flare_active`, `iter_sources` (yields `(pos, &LightSource)` joined with `World::positions`).
+
+### [items/](../adventerm_lib/src/items/) — items as entities + behaviors
+
+- `kind.rs`: `ItemKind::{Torch, Flare}` with `name()` / `glyph()`.
+- `storage.rs`: `ItemSubsystem` — per-room ground-item storage (`ComponentStore<ItemKind>`). `spawn_at`, `take_at`, `iter_at`, `any_at`, `positions`.
+- `behavior.rs`: `ItemBehavior` trait + `PlaceCtx { player_pos, world, lighting }` + `behavior_for(kind: ItemKind) -> &'static dyn ItemBehavior`. The single point in the codebase that enumerates kinds.
+- `torch.rs`, `flare.rs`: per-kind `ItemBehavior` impls (zero-sized types).
+
+To add an item kind: add a variant in `kind.rs`, add a new `<kind>.rs` with an impl, add one arm to `behavior_for`. Compiler-enforced exhaustiveness.
+
+### [visibility.rs](../adventerm_lib/src/visibility.rs) — lighting computation
+
+- `compute_room_lighting(room, player, &mut visible, &mut lit)` — runs player LOS into `visible`, then ORs each `LightSource` disc (or "all tiles" if any flare is active) into `lit`. Called by `GameState::refresh_visibility`.
 
 ### [dungeon.rs](../adventerm_lib/src/dungeon.rs) — generation and graph
 
@@ -51,11 +78,11 @@ Invariants: bidirectional door pairs (`leads_to` always reciprocates), every doo
 
 ### [room.rs](../adventerm_lib/src/room.rs) — single-room grid
 
-- `Room { id, width, height, tiles }` — flat row-major `Vec<TileKind>`, indexed `y * width + x`.
+- `Room { id, width, height, tiles, world: World, lighting: Lighting, items: ItemSubsystem }` — tiles are flat row-major `Vec<TileKind>`. `world` and the subsystems hold every entity that lives in this room.
 - `RoomId(u32)`, `DoorId(u32)` — newtypes.
 - `TileKind::{Wall, Floor, Door(DoorId)}` — `Door` carries the door reference inline.
 
-Methods: `new_filled`, `kind_at`, `set`, `is_walkable` (floor and doors), `in_bounds` (signed), `doors() -> impl Iterator`, `find_door(DoorId)`, `first_floor()` (used as spawn).
+Methods: `new_filled`, `kind_at`, `set`, `is_walkable`, `in_bounds`, `doors()`, `find_door(DoorId)`, `first_floor()`. Read-only facades: `items_at(pos)` (iter `ItemKind`), `has_item_at(pos)`, `has_light_at(pos)`. **Write paths go through the subsystems** (`room.items.spawn_at(...)`, `room.lighting.add_torch(...)`, etc.) rather than `Room` methods.
 
 ### [world.rs](../adventerm_lib/src/world.rs) — frontend-facing primitives
 
@@ -69,7 +96,7 @@ These two enums are the only types exposed for input/rendering — keep them fro
 - `Save { version, name, state }` — JSON envelope around `GameState`.
 - `SaveSlot { path, name, modified }` — directory listing entry.
 - `SaveError::{Format(serde_json::Error), UnsupportedVersion { found, expected }}`.
-- `SAVE_VERSION = 3` — bump when changing the wire format.
+- `SAVE_VERSION = 5` — bump when changing the wire format. v4 and earlier are rejected with `SaveError::UnsupportedVersion`.
 
 Functions: `Save::new`, `Save::to_bytes`, `Save::from_bytes` (validates version, then calls `state.refresh_visibility()` to rehydrate the transient FOV bitmap), `slugify(name)` (filesystem-safe slug), `slot_path(dir, name)`, `list_saves(dir)` (sorted newest first; tolerates missing dir / corrupt files / version mismatches), `delete_save(path)`.
 

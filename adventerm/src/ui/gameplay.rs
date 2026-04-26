@@ -92,8 +92,8 @@ fn pick_glyph(
         if room.has_light_at((tx, ty)) {
             return ('*', colors.world.light);
         }
-        if let Some(item) = room.items_at((tx, ty)).next() {
-            return (item.kind.glyph(), colors.world.item);
+        if let Some(kind) = room.items_at((tx, ty)).next() {
+            return (kind.glyph(), colors.world.item);
         }
         match state.tile_at(tx, ty) {
             Tile::Player => ('@', colors.world.player),
@@ -105,8 +105,8 @@ fn pick_glyph(
         if room.has_light_at((tx, ty)) {
             return ('*', colors.world.memory_light);
         }
-        if let Some(item) = room.items_at((tx, ty)).next() {
-            return (item.kind.glyph(), colors.world.memory_item);
+        if let Some(kind) = room.items_at((tx, ty)).next() {
+            return (kind.glyph(), colors.world.memory_item);
         }
         match state.terrain_at(tx, ty) {
             Tile::Door => ('+', colors.world.memory_interactive),
@@ -144,9 +144,9 @@ fn render_dialog(
             "Press Enter to open door",
             colors.body_style(),
         )));
-    } else if let Some(item) = state.peek_item_here() {
+    } else if let Some(kind) = state.peek_item_here() {
         lines.push(Line::from(Span::styled(
-            format!("Press Enter to pick up {}", item.kind.name()),
+            format!("Press Enter to pick up {}", kind.name()),
             colors.body_style(),
         )));
     }

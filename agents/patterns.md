@@ -79,3 +79,20 @@ Never reimplement filename munging or directory scanning — these helpers alrea
 | Random number for any new gameplay logic | `Rng` in [rng.rs](../adventerm_lib/src/rng.rs) — keep determinism by threading the seeded RNG, never `rand::random()` |
 
 If a new gameplay query is needed, add it as a method on `GameState` (or another lib type) rather than reaching into `Dungeon`/`Room` from the binary — that preserves CLAUDE.md rules #1 and #2.
+
+## Gameplay constructs (ECS + behaviors)
+
+See [CLAUDE.md "Gameplay constructs"](../CLAUDE.md) for the full how-to. Quick map:
+
+| Need | Use |
+|------|-----|
+| Spawn / despawn an entity, get/set its position | `World` in [ecs/mod.rs](../adventerm_lib/src/ecs/mod.rs) |
+| Generic per-component sparse storage | `ComponentStore<T>` in [ecs/mod.rs](../adventerm_lib/src/ecs/mod.rs) |
+| Add a torch / flare / iterate light sources / burn out flares | `Lighting` in [lighting/mod.rs](../adventerm_lib/src/lighting/mod.rs) |
+| Spawn / take / iterate ground items | `ItemSubsystem` in [items/storage.rs](../adventerm_lib/src/items/storage.rs) |
+| Define what happens when an item is placed | implement `ItemBehavior` in a new file under [items/](../adventerm_lib/src/items/) and add an arm to `behavior_for` in [items/behavior.rs](../adventerm_lib/src/items/behavior.rs) |
+| Recompute lit tiles for the current room | `visibility::compute_room_lighting` in [visibility.rs](../adventerm_lib/src/visibility.rs) |
+
+**Don't** add per-category fields to `World`. Write a new subsystem instead — `World` stays a stable substrate as the game grows.
+
+**Don't** match on `ItemKind` (or any future construct's discriminant) outside a `behavior_for`-style registry. The whole point of the trait is that `GameState` (and other generic call sites) never need to learn about specific kinds.
