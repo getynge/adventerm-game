@@ -1,14 +1,15 @@
-use adventerm_lib::PauseMenuOption;
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Flex, Layout, Rect};
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
-use crate::ui::menu;
+use crate::menu::PauseMenuOption;
+use crate::ui::accel;
 
-pub fn render(frame: &mut Frame, options: &[PauseMenuOption], cursor: usize) {
+pub fn render(frame: &mut Frame, cursor: usize) {
     let area = frame.area();
-    let popup = popup_rect(area, 24, 7);
+    let options = &PauseMenuOption::ALL;
+    let popup = popup_rect(area, 24, 2 + options.len() as u16);
 
     frame.render_widget(Clear, popup);
 
@@ -17,13 +18,13 @@ pub fn render(frame: &mut Frame, options: &[PauseMenuOption], cursor: usize) {
     frame.render_widget(block, popup);
 
     let labels: Vec<&str> = options.iter().map(|o| o.label()).collect();
-    let accels = menu::assign(&labels);
+    let accels = accel::assign(&labels);
 
     let lines: Vec<Line> = labels
         .iter()
         .zip(accels.iter())
         .enumerate()
-        .map(|(i, (label, accel))| menu::line(label, *accel, i == cursor))
+        .map(|(i, (label, a))| accel::line(label, *a, i == cursor))
         .collect();
 
     frame.render_widget(Paragraph::new(lines).alignment(Alignment::Center), inner);

@@ -18,15 +18,21 @@ impl MainMenuOption {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PauseMenuOption {
     Resume,
+    Hummus,
     Quit,
 }
 
 impl PauseMenuOption {
-    pub const ALL: [PauseMenuOption; 2] = [PauseMenuOption::Resume, PauseMenuOption::Quit];
+    pub const ALL: [PauseMenuOption; 3] = [
+        PauseMenuOption::Resume,
+        PauseMenuOption::Hummus,
+        PauseMenuOption::Quit,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
             PauseMenuOption::Resume => "Resume",
+            PauseMenuOption::Hummus => "Hummus",
             PauseMenuOption::Quit => "Quit",
         }
     }

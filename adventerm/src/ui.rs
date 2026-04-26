@@ -1,27 +1,28 @@
+pub mod accel;
 mod gameplay;
 mod main_menu;
-pub mod menu;
 mod pause_menu;
 
-use adventerm_lib::GameState;
 use ratatui::Frame;
+use ratatui::style::Color;
 
-use crate::app::App;
+use crate::app::{App, Screen};
 
 pub fn render(frame: &mut Frame, app: &App) {
-    match app.state() {
-        GameState::MainMenu => {
-            main_menu::render(frame, app.state().main_menu_options(), app.main_menu_cursor());
-        }
-        GameState::Playing(world) => gameplay::render(frame, world),
-        GameState::Paused(world) => {
+    match app.screen() {
+        Screen::MainMenu => main_menu::render(frame, app.main_menu_cursor()),
+        Screen::Playing(world) => gameplay::render(frame, world),
+        Screen::Paused(world) => {
             gameplay::render(frame, world);
-            pause_menu::render(
-                frame,
-                app.state().pause_menu_options(),
-                app.pause_menu_cursor(),
-            );
+            pause_menu::render(frame, app.pause_menu_cursor());
         }
-        GameState::Quit => {}
+        Screen::Quit => {}
+    }
+
+    if app.hummus() {
+        let buffer = frame.buffer_mut();
+        for cell in buffer.content.iter_mut() {
+            cell.fg = Color::Green;
+        }
     }
 }

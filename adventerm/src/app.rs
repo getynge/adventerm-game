@@ -1,28 +1,38 @@
 use std::mem;
 
-use adventerm_lib::{Direction, GameState, PauseMenuOption};
+use adventerm_lib::{Direction, World};
 use crossterm::event::Event;
 
 use crate::input::Action;
-use crate::ui::menu;
+use crate::menu::{MainMenuOption, PauseMenuOption};
+use crate::ui::accel;
+
+pub enum Screen {
+    MainMenu,
+    Playing(World),
+    Paused(World),
+    Quit,
+}
 
 pub struct App {
-    state: GameState,
+    screen: Screen,
     main_menu_cursor: usize,
     pause_menu_cursor: usize,
+    hummus: bool,
 }
 
 impl App {
     pub fn new() -> Self {
         Self {
-            state: GameState::new(),
+            screen: Screen::MainMenu,
             main_menu_cursor: 0,
             pause_menu_cursor: 0,
+            hummus: false,
         }
     }
 
-    pub fn state(&self) -> &GameState {
-        &self.state
+    pub fn screen(&self) -> &Screen {
+        &self.screen
     }
 
     pub fn main_menu_cursor(&self) -> usize {
@@ -33,62 +43,70 @@ impl App {
         self.pause_menu_cursor
     }
 
+    pub fn hummus(&self) -> bool {
+        self.hummus
+    }
+
     pub fn should_quit(&self) -> bool {
-        self.state.is_quit()
+        matches!(self.screen, Screen::Quit)
     }
 
     pub fn handle_event(&mut self, event: &Event) {
         let Some(action) = crate::input::translate(event) else {
             return;
         };
-        match &self.state {
-            GameState::MainMenu => self.handle_main_menu(action),
-            GameState::Playing(_) => self.handle_playing(action),
-            GameState::Paused(_) => self.handle_pause_menu(action),
-            GameState::Quit => {}
+        match &self.screen {
+            Screen::MainMenu => self.handle_main_menu(action),
+            Screen::Playing(_) => self.handle_playing(action),
+            Screen::Paused(_) => self.handle_pause_menu(action),
+            Screen::Quit => {}
         }
     }
 
     fn handle_main_menu(&mut self, action: Action) {
-        let options = self.state.main_menu_options();
+        let options = &MainMenuOption::ALL;
         match action {
             Action::Up => self.main_menu_cursor = prev_cursor(self.main_menu_cursor, options.len()),
             Action::Down => {
                 self.main_menu_cursor = next_cursor(self.main_menu_cursor, options.len())
             }
-            Action::Confirm => {
-                let option = options[self.main_menu_cursor];
-                self.transition(|s| s.select_main_menu(option));
-            }
+            Action::Confirm => self.select_main_option(options[self.main_menu_cursor]),
             Action::Hotkey(c) => {
-                if let Some(i) =
-                    menu::find_by_hotkey(options.len(), |i| options[i].label(), c)
-                {
+                if let Some(i) = accel::find_by_hotkey(options.len(), |i| options[i].label(), c) {
                     self.main_menu_cursor = i;
-                    let option = options[i];
-                    self.transition(|s| s.select_main_menu(option));
+                    self.select_main_option(options[i]);
                 }
             }
             _ => {}
         }
     }
 
+    fn select_main_option(&mut self, option: MainMenuOption) {
+        match option {
+            MainMenuOption::Play => self.screen = Screen::Playing(World::new()),
+            MainMenuOption::Quit => self.screen = Screen::Quit,
+        }
+    }
+
     fn handle_playing(&mut self, action: Action) {
         match action {
-            Action::Up => self.state.move_player(Direction::Up),
-            Action::Down => self.state.move_player(Direction::Down),
-            Action::Left => self.state.move_player(Direction::Left),
-            Action::Right => self.state.move_player(Direction::Right),
+            Action::Up => self.with_world(|w| w.move_player(Direction::Up)),
+            Action::Down => self.with_world(|w| w.move_player(Direction::Down)),
+            Action::Left => self.with_world(|w| w.move_player(Direction::Left)),
+            Action::Right => self.with_world(|w| w.move_player(Direction::Right)),
             Action::Escape => {
                 self.pause_menu_cursor = 0;
-                self.transition(GameState::pause);
+                self.transition_screen(|s| match s {
+                    Screen::Playing(w) => Screen::Paused(w),
+                    other => other,
+                });
             }
             _ => {}
         }
     }
 
     fn handle_pause_menu(&mut self, action: Action) {
-        let options = self.state.pause_menu_options();
+        let options = &PauseMenuOption::ALL;
         match action {
             Action::Up => {
                 self.pause_menu_cursor = prev_cursor(self.pause_menu_cursor, options.len())
@@ -96,29 +114,44 @@ impl App {
             Action::Down => {
                 self.pause_menu_cursor = next_cursor(self.pause_menu_cursor, options.len())
             }
-            Action::Confirm => {
-                let option = options[self.pause_menu_cursor];
-                self.transition(|s| s.select_pause_menu(option));
-            }
-            Action::Escape => {
-                self.transition(|s| s.select_pause_menu(PauseMenuOption::Resume));
-            }
+            Action::Confirm => self.select_pause_option(options[self.pause_menu_cursor]),
+            Action::Escape => self.select_pause_option(PauseMenuOption::Resume),
             Action::Hotkey(c) => {
-                if let Some(i) =
-                    menu::find_by_hotkey(options.len(), |i| options[i].label(), c)
-                {
+                if let Some(i) = accel::find_by_hotkey(options.len(), |i| options[i].label(), c) {
                     self.pause_menu_cursor = i;
-                    let option = options[i];
-                    self.transition(|s| s.select_pause_menu(option));
+                    self.select_pause_option(options[i]);
                 }
             }
             _ => {}
         }
     }
 
-    fn transition(&mut self, f: impl FnOnce(GameState) -> GameState) {
-        let prev = mem::replace(&mut self.state, GameState::Quit);
-        self.state = f(prev);
+    fn select_pause_option(&mut self, option: PauseMenuOption) {
+        match option {
+            PauseMenuOption::Resume => self.transition_screen(|s| match s {
+                Screen::Paused(w) => Screen::Playing(w),
+                other => other,
+            }),
+            PauseMenuOption::Hummus => {
+                self.hummus = !self.hummus;
+                self.transition_screen(|s| match s {
+                    Screen::Paused(w) => Screen::Playing(w),
+                    other => other,
+                })
+            },
+            PauseMenuOption::Quit => self.screen = Screen::Quit,
+        }
+    }
+
+    fn with_world(&mut self, f: impl FnOnce(&mut World)) {
+        if let Screen::Playing(world) = &mut self.screen {
+            f(world);
+        }
+    }
+
+    fn transition_screen(&mut self, f: impl FnOnce(Screen) -> Screen) {
+        let prev = mem::replace(&mut self.screen, Screen::Quit);
+        self.screen = f(prev);
     }
 }
 
