@@ -91,8 +91,14 @@ See [CLAUDE.md "Gameplay constructs"](../CLAUDE.md) for the full how-to. Quick m
 | Add a torch / flare / iterate light sources / burn out flares | `Lighting` in [lighting/mod.rs](../adventerm_lib/src/lighting/mod.rs) |
 | Spawn / take / iterate ground items | `ItemSubsystem` in [items/storage.rs](../adventerm_lib/src/items/storage.rs) |
 | Define what happens when an item is placed | implement `ItemBehavior` in a new file under [items/](../adventerm_lib/src/items/) and add an arm to `behavior_for` in [items/behavior.rs](../adventerm_lib/src/items/behavior.rs) |
+| Define what an ability does in battle | implement `ActiveAbility` in a new file under [abilities/](../adventerm_lib/src/abilities/) and add an arm to `ability_behavior_for` in [abilities/active.rs](../adventerm_lib/src/abilities/active.rs) |
+| Define a passive effect | implement `PassiveAbility` and add a variant to `PassiveKind` plus an arm to `passive_behavior_for` (currently `match kind {}` because the enum has no variants yet) |
+| Define an enemy AI | implement `EnemyAi` in a new file under [enemies/](../adventerm_lib/src/enemies/) and add an arm to `enemy_behavior_for` in [enemies/ai.rs](../adventerm_lib/src/enemies/ai.rs) |
+| Spawn / despawn / read enemies in a room | `room.enemies.spawn_at(...)`, `room.enemies.despawn(...)`, `room.enemies_iter()` (binary side, no `EntityId`) — `Enemies` itself is internal |
+| Tick enemy AI after a player move | `enemies::tick_enemies(room, player_pos, rng)` — already wired into `GameState::move_player` and `quick_move`, don't call directly |
+| Start / step a battle | `battle::start_battle(game, enemy_id)`, `battle::apply_player_ability(game, state, slot)`, `battle::apply_enemy_turn(game, state)` |
 | Recompute lit tiles for the current room | `visibility::compute_room_lighting` in [visibility.rs](../adventerm_lib/src/visibility.rs) |
 
 **Don't** add per-category fields to `World`. Write a new subsystem instead — `World` stays a stable substrate as the game grows.
 
-**Don't** match on `ItemKind` (or any future construct's discriminant) outside a `behavior_for`-style registry. The whole point of the trait is that `GameState` (and other generic call sites) never need to learn about specific kinds.
+**Don't** match on `ItemKind`, `AbilityKind`, `PassiveKind`, or `EnemyKind` outside a `behavior_for`-style registry. The whole point of the trait is that `GameState`, `BattleState`, and other generic call sites never need to learn about specific kinds.

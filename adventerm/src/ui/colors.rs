@@ -66,6 +66,9 @@ pub struct WorldColors {
     /// Items resting on the floor.
     pub item: Color,
     pub memory_item: Color,
+    /// Enemies standing in the room. Enemies are never rendered in memory
+    /// (they move), so there's no `memory_enemy` companion.
+    pub enemy: Color,
 }
 
 fn dim(rgb: crate::config::Rgb) -> Color {
@@ -80,6 +83,8 @@ fn dim(rgb: crate::config::Rgb) -> Color {
 const LIGHT_RGB: crate::config::Rgb = [255, 200, 80];
 /// Pale cyan for ground items — distinct from doors/lights.
 const ITEM_RGB: crate::config::Rgb = [120, 220, 220];
+/// Hot crimson for enemies — distinct from items, lights, doors, and the player.
+const ENEMY_RGB: crate::config::Rgb = [220, 60, 60];
 
 impl WorldColors {
     pub fn from_palette(p: &WorldPalette) -> Self {
@@ -96,6 +101,7 @@ impl WorldColors {
             memory_light: dim(LIGHT_RGB),
             item: rgb_to_color(ITEM_RGB),
             memory_item: dim(ITEM_RGB),
+            enemy: rgb_to_color(ENEMY_RGB),
         }
     }
 }

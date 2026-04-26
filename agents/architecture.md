@@ -35,6 +35,7 @@ Defined as the [`Screen`](../adventerm/src/app.rs) enum. Variants and the `GameS
 | `LoadGame` | no | Browses save files; can delete with confirm |
 | `SeedEntry` | no | Text buffer (≤32 chars) for an optional new-game seed; blank → clock seed |
 | `Playing(GameState)` | yes | Active gameplay |
+| `Battle` | yes | Turn-based RPG combat against one enemy. Entered when `move_player`/`quick_move` returns `MoveOutcome::Encounter` or the player walks into an enemy. |
 | `Paused` | yes (retained) | Overlay on Playing; offers Resume / Save / Quit |
 | `SaveSlotPicker` | yes | Pick existing slot to overwrite, or "+ New save..." |
 | `NameEntry` | yes | Text buffer (≤32 chars) for new save name |
@@ -54,10 +55,15 @@ Status messages on each screen are an enum (`Status::None | Info | Error`) clear
 
 What crosses (library types used in the binary):
 
-- [`GameState`](../adventerm_lib/src/game.rs), [`MoveOutcome`](../adventerm_lib/src/game.rs), [`DoorEvent`](../adventerm_lib/src/game.rs), [`PlaceOutcome`](../adventerm_lib/src/items/behavior.rs)
+- [`GameState`](../adventerm_lib/src/game.rs), [`MoveOutcome`](../adventerm_lib/src/game.rs) (now includes `Encounter(EntityId)`), [`DoorEvent`](../adventerm_lib/src/game.rs), [`PlaceOutcome`](../adventerm_lib/src/items/behavior.rs)
 - [`ItemKind`](../adventerm_lib/src/items/kind.rs) — used by the inventory renderer for `name()` / `glyph()`
+- [`AbilityKind`](../adventerm_lib/src/abilities/mod.rs), [`PassiveKind`](../adventerm_lib/src/abilities/mod.rs) — used by the inventory renderer for slot labels
+- [`Stats`](../adventerm_lib/src/stats/mod.rs), [`Attribute`](../adventerm_lib/src/stats/mod.rs) — used by the inventory Stats tab and battle HP bars
+- [`BattleState`](../adventerm_lib/src/battle/mod.rs), [`BattleTurn`](../adventerm_lib/src/battle/mod.rs), [`BattleResult`](../adventerm_lib/src/battle/mod.rs) — used by `Screen::Battle`. `battle::start_battle`, `battle::apply_player_ability`, `battle::apply_enemy_turn` are the only engine entry points the binary calls.
+- [`EnemyKind`](../adventerm_lib/src/enemies/kind.rs) — used by the gameplay renderer for the enemy glyph
+- [`EntityId`](../adventerm_lib/src/ecs/mod.rs) — opaque handle the binary passes back into `start_battle` and `defeat_enemy`; never inspected
 - [`Direction`](../adventerm_lib/src/world.rs), [`Tile`](../adventerm_lib/src/world.rs) — `Tile` is the only rendering primitive the library exposes
-- [`Save`](../adventerm_lib/src/save.rs), [`SaveSlot`](../adventerm_lib/src/save.rs), [`SaveError`](../adventerm_lib/src/save.rs), [`SAVE_VERSION`](../adventerm_lib/src/save.rs), `slugify`, `slot_path`, `list_saves`, `delete_save`
+- [`Save`](../adventerm_lib/src/save.rs), [`SaveSlot`](../adventerm_lib/src/save.rs), [`SaveError`](../adventerm_lib/src/save.rs), [`SAVE_VERSION`](../adventerm_lib/src/save.rs) (now `6`), `slugify`, `slot_path`, `list_saves`, `delete_save`
 - [`RoomId`](../adventerm_lib/src/room.rs), [`DoorId`](../adventerm_lib/src/room.rs), [`TileKind`](../adventerm_lib/src/room.rs) — used indirectly through `Tile` queries and door interaction
 
 What must not cross:
@@ -65,12 +71,12 @@ What must not cross:
 - `ratatui`/`crossterm` types (no key codes, colors, rects in the library API)
 - Layout constants, popup sizes, color palettes
 - Menu cursor positions, scroll offsets, status strings
-- ECS substrate (`World`, `EntityId`, `ComponentStore`) and subsystem types (`Lighting`, `ItemSubsystem`) — these are library internals; the binary reads gameplay state through `Room`/`GameState` facades only
+- ECS substrate (`World`, `ComponentStore`) and subsystem types (`Lighting`, `ItemSubsystem`, `Enemies`, `Abilities`) — these are library internals; the binary reads gameplay state through `Room`/`GameState` facades only. `EntityId` does cross the boundary as an opaque token (e.g. for `start_battle`/`defeat_enemy`) but is never inspected.
 
 If you find yourself reaching for a `KeyCode` in the library or a `Dungeon` field in a renderer, that's a signal the design is bending around the boundary — restructure instead.
 
 ## Determinism and persistence
 
 - Dungeon generation is fully seeded (xorshift `Rng`); same seed → identical dungeon.
-- Saves are JSON with a version field (`SAVE_VERSION = 5`); load rejects mismatches cleanly.
+- Saves are JSON with a version field (`SAVE_VERSION = 6`); load rejects mismatches cleanly.
 - Config (keybinds + active scheme) is JSON at `{save_dir}/config.json`; user-defined color schemes live in `{save_dir}/schemes/*.json`.

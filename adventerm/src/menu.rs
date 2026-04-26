@@ -33,6 +33,36 @@ impl MainMenuOption {
     }
 }
 
+/// Top-level tabs in the inventory popup. The cursor row inside each tab is
+/// independent state on `Screen::Inventory`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InventoryTab {
+    Items,
+    Abilities,
+    Stats,
+}
+
+impl InventoryTab {
+    pub const ALL: [InventoryTab; 3] = [
+        InventoryTab::Items,
+        InventoryTab::Abilities,
+        InventoryTab::Stats,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            InventoryTab::Items => "Items",
+            InventoryTab::Abilities => "Abilities",
+            InventoryTab::Stats => "Stats",
+        }
+    }
+
+    pub fn next(self) -> Self {
+        let idx = Self::ALL.iter().position(|t| *t == self).unwrap_or(0);
+        Self::ALL[(idx + 1) % Self::ALL.len()]
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PauseMenuOption {
     Resume,

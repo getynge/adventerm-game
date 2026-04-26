@@ -2,11 +2,21 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::abilities::Abilities;
 use crate::dungeon::{step_inward, Dungeon};
+use crate::ecs::EntityId;
+use crate::enemies::{self, EnemyTickOutcome};
 use crate::items::{self, ItemKind, PlaceCtx};
+use crate::rng::Rng;
 use crate::room::{DoorId, Room, RoomId, TileKind};
+use crate::stats::Stats;
 use crate::visibility;
 use crate::world::{Direction, Tile};
+
+/// Constant XOR'd into the dungeon seed when re-seeding the per-tick enemy
+/// RNG after a load. Keeps enemy AI reproducible from the dungeon seed alone
+/// without making the AI sequence identical to dungeon generation's draws.
+const ENEMY_RNG_SALT: u64 = 0x4144_5645_4E54_524D;
 
 fn step(direction: Direction, x: usize, y: usize) -> (isize, isize) {
     match direction {
@@ -21,6 +31,9 @@ fn step(direction: Direction, x: usize, y: usize) -> (isize, isize) {
 pub enum MoveOutcome {
     Blocked,
     Moved,
+    /// The player's move ended adjacent to (or stepped into) an enemy that
+    /// wants to engage. The binary opens the battle screen with this entity.
+    Encounter(EntityId),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,12 +54,33 @@ pub struct GameState {
     pub explored: HashMap<RoomId, Vec<bool>>,
     #[serde(default)]
     pub inventory: Vec<ItemKind>,
+    /// Player stat block. Maximum HP comes from `stats.health`; the player's
+    /// current HP is tracked separately in `cur_health`.
+    #[serde(default)]
+    pub stats: Stats,
+    /// Player's current HP. Defaults to `stats.health` (full) on load via
+    /// `refresh_visibility` if it ever falls out of sync; for now we treat
+    /// the saved value as authoritative.
+    #[serde(default = "default_cur_health")]
+    pub cur_health: u8,
+    /// Player abilities — active slots, passive slots, learned lists.
+    #[serde(default)]
+    pub abilities: Abilities,
     #[serde(skip)]
     visible: Vec<bool>,
     /// Cached "tile is within some persistent light's reach" bitmap for the
     /// current room. Recomputed in `refresh_visibility`.
     #[serde(skip)]
     lit: Vec<bool>,
+    /// Per-game RNG used by the enemy movement tick. Re-seeded on load from
+    /// the dungeon seed (`Save::from_bytes` calls `refresh_visibility`, which
+    /// also rehydrates this).
+    #[serde(skip)]
+    enemy_rng: Option<Rng>,
+}
+
+fn default_cur_health() -> u8 {
+    Stats::default().health
 }
 
 impl PartialEq for GameState {
@@ -56,6 +90,9 @@ impl PartialEq for GameState {
             && self.player == other.player
             && self.explored == other.explored
             && self.inventory == other.inventory
+            && self.stats == other.stats
+            && self.cur_health == other.cur_health
+            && self.abilities == other.abilities
     }
 }
 
@@ -67,14 +104,19 @@ impl GameState {
             .room(start_room)
             .first_floor()
             .unwrap_or((0, 0));
+        let stats = Stats::default();
         let mut state = Self {
             dungeon,
             current_room: start_room,
             player,
             explored: HashMap::new(),
             inventory: Vec::new(),
+            stats,
+            cur_health: stats.health,
+            abilities: Abilities::default(),
             visible: Vec::new(),
             lit: Vec::new(),
+            enemy_rng: Some(Rng::new(seed ^ ENEMY_RNG_SALT)),
         };
         state.refresh_visibility();
         state
@@ -182,14 +224,23 @@ impl GameState {
         if !room.is_walkable(nx, ny) {
             return MoveOutcome::Blocked;
         }
+        // Walking into a tile occupied by an enemy starts a battle without
+        // moving the player on top of the enemy.
+        if let Some(entity) = room.enemies.entity_at(&room.world, (nx, ny)) {
+            return MoveOutcome::Encounter(entity);
+        }
         self.player = (nx, ny);
         self.refresh_visibility();
+        if let Some(entity) = self.tick_enemies_for_player_move() {
+            return MoveOutcome::Encounter(entity);
+        }
         MoveOutcome::Moved
     }
 
     /// Slide the player as far as possible in `direction` without stepping
     /// onto an interactable tile (currently doors). Stops when the next tile
-    /// is out of bounds, a wall, or a door.
+    /// is out of bounds, a wall, a door, or an enemy. Triggers a single
+    /// enemy tick at the end if the player moved at least one tile.
     pub fn quick_move(&mut self, direction: Direction) -> MoveOutcome {
         let mut moved = false;
         loop {
@@ -202,6 +253,9 @@ impl GameState {
             let (nx, ny) = (nx as usize, ny as usize);
             match room.kind_at(nx, ny) {
                 Some(TileKind::Floor) => {
+                    if room.enemies.entity_at(&room.world, (nx, ny)).is_some() {
+                        break;
+                    }
                     self.player = (nx, ny);
                     moved = true;
                 }
@@ -210,10 +264,38 @@ impl GameState {
         }
         if moved {
             self.refresh_visibility();
+            if let Some(entity) = self.tick_enemies_for_player_move() {
+                return MoveOutcome::Encounter(entity);
+            }
             MoveOutcome::Moved
         } else {
             MoveOutcome::Blocked
         }
+    }
+
+    /// Run a single enemy tick in the current room. Returns the engaging
+    /// enemy entity if the tick produces an encounter. Lazily seeds the
+    /// per-game RNG from the dungeon seed if a load left it empty.
+    fn tick_enemies_for_player_move(&mut self) -> Option<EntityId> {
+        let player = self.player;
+        let room_id = self.current_room;
+        // Lazily rehydrate the RNG: deserialized states have `enemy_rng = None`.
+        if self.enemy_rng.is_none() {
+            self.enemy_rng = Some(Rng::new(self.dungeon.seed ^ ENEMY_RNG_SALT));
+        }
+        let rng = self.enemy_rng.as_mut()?;
+        let room = self.dungeon.room_mut(room_id);
+        match enemies::tick_enemies(room, player, rng) {
+            EnemyTickOutcome::EncounterTriggered(e) => Some(e),
+            EnemyTickOutcome::Quiet => None,
+        }
+    }
+
+    /// Despawn an enemy from the room it lives in. Used by the binary after
+    /// a battle ends in victory.
+    pub fn defeat_enemy(&mut self, room: RoomId, entity: EntityId) {
+        let room = self.dungeon.room_mut(room);
+        room.enemies.despawn(&mut room.world, entity);
     }
 
     pub fn interact(&mut self) -> Option<DoorEvent> {
@@ -506,6 +588,44 @@ mod tests {
         let prev = state.dungeon.room(room_id);
         assert!(!prev.lighting.any_flare_active());
         assert!(prev.has_light_at(placement));
+    }
+
+    #[test]
+    fn defeat_enemy_removes_it_from_room() {
+        let mut state = GameState::new_seeded(11);
+        // Find any room with at least one enemy.
+        let target_room = state
+            .dungeon
+            .rooms
+            .iter()
+            .find(|r| !r.enemies.is_empty())
+            .map(|r| r.id);
+        let Some(target_room) = target_room else {
+            return; // no-op if seed produced none
+        };
+        let entity = state
+            .dungeon
+            .room(target_room)
+            .enemies
+            .entities()
+            .next()
+            .unwrap();
+        state.defeat_enemy(target_room, entity);
+        let room = state.dungeon.room(target_room);
+        assert!(!room.enemies.entities().any(|e| e == entity));
+    }
+
+    #[test]
+    fn save_round_trip_preserves_combat_fields() {
+        use crate::save::Save;
+        let mut state = GameState::new_seeded(31);
+        state.cur_health = state.stats.health - 3;
+        let save = Save::new("Combat Run".into(), state.clone());
+        let bytes = save.to_bytes();
+        let recovered = Save::from_bytes(&bytes).expect("decode");
+        assert_eq!(recovered.state.stats, state.stats);
+        assert_eq!(recovered.state.cur_health, state.cur_health);
+        assert_eq!(recovered.state.abilities, state.abilities);
     }
 
     #[test]

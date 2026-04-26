@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 
+use crate::enemies::EnemyKind;
 use crate::items::ItemKind;
 use crate::rng::Rng;
 use crate::room::{DoorId, Room, RoomId, TileKind};
@@ -34,6 +35,16 @@ const GROUND_ITEM_CHANCE_DEN: u32 = 2;
 /// rather than a torch. Kept low so flares feel rare.
 const FLARE_OF_ITEM_NUM: u32 = 1;
 const FLARE_OF_ITEM_DEN: u32 = 8;
+
+/// Per-room probability of spawning a single enemy. Enemies are placed during
+/// generation so the dungeon layout (and the encounter pacing) is fully
+/// determined by the seed.
+const ENEMY_SPAWN_NUM: u32 = 1;
+const ENEMY_SPAWN_DEN: u32 = 2;
+
+/// Available enemy kinds. Adding a new variant to `EnemyKind` is enough to
+/// pull it into the spawn pool.
+const ENEMY_KINDS: [EnemyKind; 1] = [EnemyKind::Slime];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Door {
@@ -103,6 +114,17 @@ impl Dungeon {
                 pos: pos_b,
                 leads_to: id_a,
             });
+        }
+
+        // Enemy placement runs after the room+door pass so the spawn RNG draw
+        // doesn't perturb the earlier deterministic geometry. The starting
+        // room (id 0) is intentionally skipped — the player needs a safe
+        // tile to spawn on.
+        for (i, room) in rooms.iter_mut().enumerate() {
+            if i == 0 {
+                continue;
+            }
+            place_room_enemy(room, &mut rng);
         }
 
         Dungeon { seed, rooms, doors }
@@ -354,6 +376,27 @@ fn place_room_items(room: &mut Room, rng: &mut Rng) {
     room.items.spawn_at(&mut room.world, pos, kind);
 }
 
+/// Place at most one enemy per non-starting room. Spawn tile is a random
+/// floor tile; the enemy kind is uniformly drawn from `ENEMY_KINDS`. The
+/// `&mut Rng` is the seeded one driving the rest of generation, so spawn
+/// placement is fully deterministic.
+fn place_room_enemy(room: &mut Room, rng: &mut Rng) {
+    if !rng.chance(ENEMY_SPAWN_NUM, ENEMY_SPAWN_DEN) {
+        return;
+    }
+    let floors: Vec<(usize, usize)> = (0..room.height)
+        .flat_map(|y| (0..room.width).map(move |x| (x, y)))
+        .filter(|&(x, y)| matches!(room.kind_at(x, y), Some(TileKind::Floor)))
+        .filter(|&pos| !room.has_item_at(pos))
+        .collect();
+    if floors.is_empty() {
+        return;
+    }
+    let pos = floors[rng.range(0, floors.len())];
+    let kind = ENEMY_KINDS[rng.range(0, ENEMY_KINDS.len())];
+    room.enemies.spawn_at(&mut room.world, pos, kind);
+}
+
 /// Step from a door tile one step inward — toward the room interior.
 pub fn step_inward(door_pos: (usize, usize), room: &Room) -> (usize, usize) {
     let (x, y) = door_pos;
@@ -541,6 +584,50 @@ mod tests {
         // 2/5 == 40% target — comfortably under 50%.
         let fraction = with_light as f32 / total as f32;
         assert!(fraction < 0.5, "expected < 50% rooms with lights, got {fraction}");
+    }
+
+    #[test]
+    fn enemy_spawning_is_deterministic_per_seed() {
+        let a = Dungeon::generate(2026);
+        let b = Dungeon::generate(2026);
+        for (ra, rb) in a.rooms.iter().zip(b.rooms.iter()) {
+            let pa: Vec<(usize, usize)> = ra
+                .enemies
+                .iter_with_pos(&ra.world)
+                .map(|(_, p, _)| p)
+                .collect();
+            let pb: Vec<(usize, usize)> = rb
+                .enemies
+                .iter_with_pos(&rb.world)
+                .map(|(_, p, _)| p)
+                .collect();
+            assert_eq!(pa, pb);
+        }
+    }
+
+    #[test]
+    fn starting_room_has_no_enemies() {
+        for seed in 0..16u64 {
+            let d = Dungeon::generate(seed);
+            let start = d.room(RoomId(0));
+            assert!(
+                start.enemies.is_empty(),
+                "starting room had enemies (seed {seed})"
+            );
+        }
+    }
+
+    #[test]
+    fn enemies_land_on_floor_tiles() {
+        let d = Dungeon::generate(2027);
+        for room in &d.rooms {
+            for (_, pos, _) in room.enemies.iter_with_pos(&room.world) {
+                assert!(matches!(
+                    room.kind_at(pos.0, pos.1),
+                    Some(TileKind::Floor)
+                ));
+            }
+        }
     }
 
     #[test]

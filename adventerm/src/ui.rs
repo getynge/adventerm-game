@@ -1,4 +1,5 @@
 pub mod accel;
+mod battle;
 pub mod colors;
 mod gameplay;
 mod inventory;
@@ -49,9 +50,30 @@ pub fn render(frame: &mut Frame, app: &App) {
         Screen::Playing(state) => {
             gameplay::render(frame, state, None, &scheme_colors);
         }
-        Screen::Inventory { game, cursor, status } => {
+        Screen::Battle {
+            game,
+            battle: state,
+            cursor,
+            status,
+        } => {
+            battle::render(frame, game, state, *cursor, status.text(), &scheme_colors);
+        }
+        Screen::Inventory {
+            game,
+            tab,
+            item_cursor,
+            ability_cursor,
+            status,
+        } => {
             gameplay::render(frame, game, status.text(), &scheme_colors);
-            inventory::render(frame, game, *cursor, &scheme_colors.menu);
+            inventory::render(
+                frame,
+                game,
+                *tab,
+                *item_cursor,
+                *ability_cursor,
+                &scheme_colors.menu,
+            );
         }
         Screen::Paused { game, menu, status } => {
             gameplay::render(frame, game, status.text(), &scheme_colors);

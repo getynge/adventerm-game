@@ -89,6 +89,9 @@ fn pick_glyph(
     }
     let room = state.current_room();
     if visible {
+        if let Some(glyph) = room.enemy_glyph_at((tx, ty)) {
+            return (glyph, colors.world.enemy);
+        }
         if room.has_light_at((tx, ty)) {
             return ('*', colors.world.light);
         }

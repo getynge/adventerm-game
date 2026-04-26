@@ -17,7 +17,9 @@ Per-screen behavior (high level):
 | `MainMenu` | Up/Down, Confirm, Hotkey | New Game → `SeedEntry`, Load Game → `LoadGame`, Options → `Options`, Quit → `Quit` |
 | `LoadGame` | Up/Down, Confirm, Delete/`x`, Esc | Confirm loads save → `Playing`; Delete sets `pending_delete`, next Confirm deletes |
 | `SeedEntry` | Char, Backspace, Enter, Esc | Enter resolves seed (blank → clock, else hashed text) → `Playing`; Esc → `MainMenu` |
-| `Playing` | Movement (+ Shift = quick), Confirm = `interact`, Esc | Esc → `Paused` |
+| `Playing` | Movement (+ Shift = quick), Confirm = `interact`, Tab = inventory, Esc | A move whose `MoveOutcome` is `Encounter` opens `Battle`. Esc → `Paused`. |
+| `Battle` | Up/Down on player turn, Confirm to use the selected ability or advance the enemy turn, Esc to flee | Resolves to `Playing` on victory/flee (enemy despawned on victory) or `MainMenu` on defeat. |
+| `Inventory` | Tab cycles tabs (Items / Abilities / Stats), Up/Down, Confirm, Esc | Confirm on Items places that item; Abilities and Stats are read-only for now. |
 | `Paused` | Up/Down, Confirm, Hotkey, Esc | Resume / Save (→ `SaveSlotPicker`) / Quit |
 | `SaveSlotPicker` | Up/Down, Confirm, Esc | Index 0 ("+ New save...") → `NameEntry`; otherwise overwrite |
 | `NameEntry` | Char, Backspace, Enter, Esc | Enter validates + writes save → `Paused` |
@@ -55,8 +57,20 @@ If stdin/stdout aren't a TTY (file-manager launch), spawn a terminal and re-exec
 
 `render(frame, app)` converts the current `ColorScheme` into `SchemeColors` once per frame (avoid recomputing inside widgets), then matches on the screen and delegates. `render_main_menu_underlay` paints the dimmed main menu behind `LoadGame` / `Options` / `RebindCapture`.
 
+### Battle screen
+
+`adventerm/src/ui/battle.rs` paints a single full-frame popup with three vertical regions:
+
+1. **Header** — player and enemy names with HP bars (`[####···] cur / max`). HP-bar width is the named constant `HP_BAR_WIDTH` (default 20).
+2. **Actions** — list of the player's active ability slots (read from `GameState::abilities`). Cursor only renders during the player turn.
+3. **Log** — last `BATTLE_LOG_LINES` (default 8) lines from `BattleState::log`, plus a status overlay (e.g. "That slot is empty.") and a hint footer that adapts to whose turn it is.
+
+All input dispatch lives in `App::handle_battle` — Up/Down moves the cursor among ability slots on the player turn, Confirm fires `battle::apply_player_ability` (or `apply_enemy_turn` when it's the enemy's turn), and Esc on the player turn flags the battle as `Resolved(Fled)`. When `BattleState::result()` becomes `Some`, any subsequent Confirm/Esc routes through `App::finish_battle`.
+
 ### Per-screen renderers (`adventerm/src/ui/`)
 
+- [battle.rs](../adventerm/src/ui/battle.rs) — covered in the previous section. Reuses `menu_block`, `MenuColors`, `Layout::vertical`. Enemy glyph is read via `room.enemies.kind_of(entity)`.
+- [inventory.rs](../adventerm/src/ui/inventory.rs) — three-tab popup (Items / Abilities / Stats) with a tab header row. The active tab is one of `InventoryTab` from [menu.rs](../adventerm/src/menu.rs); each tab keeps its own cursor on `Screen::Inventory`. Tab key (translated to `Action::Inventory` while inside the popup) cycles tabs; Up/Down moves within the active panel; Confirm in Items places that item.
 - [main_menu.rs](../adventerm/src/ui/main_menu.rs) — title + centered options + status; uses `accel::assign` + `accel::line`
 - [gameplay.rs](../adventerm/src/ui/gameplay.rs) — three-region layout per CLAUDE.md rule #3 (world, dialog beneath, actions panel right). `scroll_offset` keeps the player centered. Tile glyphs: `@` player, `.` floor, `#` wall, `+` door. Each cell picks one of three render paths via `GameState::is_visible` / `is_explored`: in-LOS uses full-brightness `WorldColors`, out-of-LOS-but-explored uses the dimmed `memory_*` colors, unseen tiles render as a blank space.
 - [pause_menu.rs](../adventerm/src/ui/pause_menu.rs) — fixed-width 24 popup, height from option count

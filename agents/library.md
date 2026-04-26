@@ -4,16 +4,19 @@ Pure gameplay logic. No `ratatui`/`crossterm` imports. Serde for serialization, 
 
 ## Public surface
 
-Re-exported from [lib.rs](../adventerm_lib/src/lib.rs): `Dungeon`, `Door`, `GameState`, `DoorEvent`, `MoveOutcome`, `PlaceOutcome`, `ItemKind`, `EntityId`, `World`, `Room`, `RoomId`, `DoorId`, `TileKind`, `Direction`, `Tile`, `Save`, `SaveError`, `SaveSlot`, `SAVE_VERSION`, `LIGHT_RANGE`, `LOS_RANGE`.
+Re-exported from [lib.rs](../adventerm_lib/src/lib.rs): `Dungeon`, `Door`, `GameState`, `DoorEvent`, `MoveOutcome`, `PlaceOutcome`, `ItemKind`, `EntityId`, `World`, `Room`, `RoomId`, `DoorId`, `TileKind`, `Direction`, `Tile`, `Save`, `SaveError`, `SaveSlot`, `SAVE_VERSION`, `LIGHT_RANGE`, `LOS_RANGE`, `Stats`, `Attribute`, `AbilityKind`, `PassiveKind`, `BattleState`, `BattleTurn`, `BattleResult`, `EnemyKind`.
+
+Subsystem types (`Abilities`, `Enemies`, `Lighting`, `ItemSubsystem`) are deliberately **not** re-exported — the binary reads them through `Room`/`GameState` facades.
 
 ## Modules
 
 ### [game.rs](../adventerm_lib/src/game.rs) — gameplay state
 
-- `GameState` — owns `Dungeon`, current `RoomId`, player `(x, y)`, `explored: HashMap<RoomId, Vec<bool>>` (per-room memory of seen tiles), `inventory: Vec<ItemKind>`, and transient `visible`/`lit` bitmaps (`#[serde(skip)]`, rehydrated by `Save::from_bytes`). Constructed via `GameState::new_seeded(seed)`.
-- `MoveOutcome::{Blocked, Moved}` — return type of movement attempts.
+- `GameState` — owns `Dungeon`, current `RoomId`, player `(x, y)`, `explored: HashMap<RoomId, Vec<bool>>` (per-room memory of seen tiles), `inventory: Vec<ItemKind>`, `stats: Stats`, `cur_health: u8`, `abilities: Abilities`, and transient `visible`/`lit` bitmaps + `enemy_rng: Option<Rng>` (all `#[serde(skip)]`, rehydrated by `Save::from_bytes` and the lazy path in `tick_enemies_for_player_move`). Constructed via `GameState::new_seeded(seed)`.
+- `MoveOutcome::{Blocked, Moved, Encounter(EntityId)}` — return type of movement attempts. `Encounter` is produced when (a) the player tries to step onto an enemy tile or (b) an enemy ends its post-move tick adjacent to the player.
 - `DoorEvent { from, to, new_room }` — door transition record.
 - `PlaceOutcome` — re-exported from `items::PlaceOutcome`. Returned by `place_item` so the binary can surface a status message; `GameState` does not match on `ItemKind`.
+- `defeat_enemy(room, entity)` — despawns the enemy entity from the named room. Called by the binary after a battle ends in victory.
 
 Key methods:
 
@@ -78,11 +81,11 @@ Invariants: bidirectional door pairs (`leads_to` always reciprocates), every doo
 
 ### [room.rs](../adventerm_lib/src/room.rs) — single-room grid
 
-- `Room { id, width, height, tiles, world: World, lighting: Lighting, items: ItemSubsystem }` — tiles are flat row-major `Vec<TileKind>`. `world` and the subsystems hold every entity that lives in this room.
+- `Room { id, width, height, tiles, world: World, lighting: Lighting, items: ItemSubsystem, enemies: Enemies }` — tiles are flat row-major `Vec<TileKind>`. `world` and the subsystems hold every entity that lives in this room.
 - `RoomId(u32)`, `DoorId(u32)` — newtypes.
 - `TileKind::{Wall, Floor, Door(DoorId)}` — `Door` carries the door reference inline.
 
-Methods: `new_filled`, `kind_at`, `set`, `is_walkable`, `in_bounds`, `doors()`, `find_door(DoorId)`, `first_floor()`. Read-only facades: `items_at(pos)` (iter `ItemKind`), `has_item_at(pos)`, `has_light_at(pos)`. **Write paths go through the subsystems** (`room.items.spawn_at(...)`, `room.lighting.add_torch(...)`, etc.) rather than `Room` methods.
+Methods: `new_filled`, `kind_at`, `set`, `is_walkable`, `in_bounds`, `doors()`, `find_door(DoorId)`, `first_floor()`. Read-only facades: `items_at(pos)` (iter `ItemKind`), `has_item_at(pos)`, `has_light_at(pos)`, `enemy_glyph_at(pos)`, `has_enemy_at(pos)`, `enemies_iter()` (yields `((x,y), EnemyKind)` — no `EntityId`). **Write paths go through the subsystems** (`room.items.spawn_at(...)`, `room.lighting.add_torch(...)`, `room.enemies.spawn_at(...)`, etc.) rather than `Room` methods.
 
 ### [world.rs](../adventerm_lib/src/world.rs) — frontend-facing primitives
 
@@ -96,7 +99,7 @@ These two enums are the only types exposed for input/rendering — keep them fro
 - `Save { version, name, state }` — JSON envelope around `GameState`.
 - `SaveSlot { path, name, modified }` — directory listing entry.
 - `SaveError::{Format(serde_json::Error), UnsupportedVersion { found, expected }}`.
-- `SAVE_VERSION = 5` — bump when changing the wire format. v4 and earlier are rejected with `SaveError::UnsupportedVersion`.
+- `SAVE_VERSION = 6` — bump when changing the wire format. v5 and earlier are rejected with `SaveError::UnsupportedVersion`.
 
 Functions: `Save::new`, `Save::to_bytes`, `Save::from_bytes` (validates version, then calls `state.refresh_visibility()` to rehydrate the transient FOV bitmap), `slugify(name)` (filesystem-safe slug), `slot_path(dir, name)`, `list_saves(dir)` (sorted newest first; tolerates missing dir / corrupt files / version mismatches), `delete_save(path)`.
 
@@ -109,6 +112,33 @@ Always go through these helpers — never roll your own filename or scan directl
 - `compute_visible(room, origin, out)` — fills `out` with one `bool` per tile (row-major). Origin is always visible; for each tile with `dx² + (dy * aspect)² ≤ LOS_RANGE²`, a Bresenham line from origin determines whether an intermediate wall blocks the endpoint. Endpoint walls are visible (you see the wall, not past it).
 
 Vision is omnidirectional. The asymmetry inherent in per-tile Bresenham is acceptable at this scale; switch to symmetric shadowcasting later if artifacts become noticeable.
+
+### [stats/mod.rs](../adventerm_lib/src/stats/mod.rs) — stat block
+
+- `Stats { health, attack, defense, speed, attribute }` — clamped to `[STAT_MIN, STAT_MAX] = [0, 100]` on construction. `Default` returns the player's starter profile (HP 25 / ATK 10 / DEF 5 / SPD 8 / Fire).
+- `Attribute::{Fire, Water, Earth, Light, Dark}` — elemental affinity. Currently display-only; battle damage ignores it.
+
+### [abilities/](../adventerm_lib/src/abilities/) — abilities as ZST behaviors
+
+- `mod.rs`: `Abilities { active_slots, passive_slots, learned_active, learned_passive }`. `ABILITY_SLOTS = 4`, `PASSIVE_SLOTS = 4`. `Default` puts `Impact` in `active_slots[0]` and learned_active. Lives on `GameState`, not `Room`.
+- `active.rs`: `ActiveAbility` trait, `AbilityCtx { attacker, defender }`, `AbilityOutcome { damage }`, `ability_behavior_for(kind) -> &'static dyn ActiveAbility`. The single point that enumerates `AbilityKind`.
+- `passive.rs`: `PassiveAbility` trait + `passive_behavior_for`. `PassiveKind` is currently `pub enum {}` (zero variants); `passive_behavior_for` is `match kind {}`. Adding the first passive: add a variant, add a module with an impl, add an arm.
+- `impact.rs`: `ImpactAbility` ZST. Damage = `max(1, attacker.attack - defender.defense)`.
+- `AbilityKind::{Impact}` — start of the enum that grows as new abilities land.
+
+### [enemies/](../adventerm_lib/src/enemies/) — enemies + AI
+
+- `mod.rs`: `Enemies` subsystem on `Room` — `ComponentStore<EnemyKind>`, `ComponentStore<Stats>`, `ComponentStore<u8>` (current HP). Methods: `spawn_at`, `despawn`, `kind_of`, `stats_of`, `hp_of`, `set_hp`, `entity_at`, `iter_with_pos`.
+- `kind.rs`: `EnemyKind::{Slime}` with `name()`, `glyph()`, `base_stats()`.
+- `ai.rs`: `EnemyAi` trait, `AiCtx { enemy_pos, player_pos, room, rng }`, `AiAction::{Wait, Step(Direction)}`, `enemy_behavior_for(kind)`.
+- `slime.rs`: `SlimeAi` ZST — 50% chance to move per tick, prefers the longer axis toward the player.
+- `movement.rs`: `tick_enemies(room, player_pos, rng) -> EnemyTickOutcome::{Quiet, EncounterTriggered(EntityId)}`. Iteration order is sorted by `EntityId` for determinism. Called by `GameState::move_player` / `quick_move` after a successful step.
+- Spawn happens during `Dungeon::generate` via `place_room_enemy` — every non-starting room gets an enemy with probability `ENEMY_SPAWN_NUM/DEN = 1/2`.
+
+### [battle/](../adventerm_lib/src/battle/) — turn-based combat engine
+
+- `mod.rs`: `BattleState { enemy_id, enemy_room, player_cur_hp, enemy_cur_hp, turn, log }`, `BattleTurn::{Player, Enemy, Resolved(BattleResult)}`, `BattleResult::{Victory, Defeat, Fled}`. `BATTLE_LOG_LINES = 8` caps the log.
+- `engine.rs`: `start_battle(game, enemy_id) -> Option<BattleState>`, `apply_player_ability(game, state, slot)`, `apply_enemy_turn(game, state)`. Player turns dispatch through `ability_behavior_for`; enemy turns currently use a stat-based basic attack with a 1-damage floor.
 
 ### [rng.rs](../adventerm_lib/src/rng.rs) — seeded PRNG
 

@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::ecs::World;
+use crate::enemies::{Enemies, EnemyKind};
 use crate::items::{ItemKind, ItemSubsystem};
 use crate::lighting::Lighting;
 
@@ -34,6 +35,9 @@ pub struct Room {
     /// Ground items as entities.
     #[serde(default)]
     pub items: ItemSubsystem,
+    /// Enemies that occupy this room.
+    #[serde(default)]
+    pub enemies: Enemies,
 }
 
 impl Room {
@@ -46,6 +50,7 @@ impl Room {
             world: World::default(),
             lighting: Lighting::default(),
             items: ItemSubsystem::default(),
+            enemies: Enemies::default(),
         }
     }
 
@@ -62,6 +67,27 @@ impl Room {
 
     pub fn has_light_at(&self, pos: (usize, usize)) -> bool {
         self.lighting.iter_sources(&self.world).any(|(p, _)| p == pos)
+    }
+
+    /// Glyph for the enemy resting at `(x, y)`, if any. The renderer reads
+    /// this without ever touching `EntityId`.
+    pub fn enemy_glyph_at(&self, pos: (usize, usize)) -> Option<char> {
+        self.enemies
+            .iter_with_pos(&self.world)
+            .find(|(_, p, _)| *p == pos)
+            .map(|(_, _, kind)| kind.glyph())
+    }
+
+    pub fn has_enemy_at(&self, pos: (usize, usize)) -> bool {
+        self.enemies.entity_at(&self.world, pos).is_some()
+    }
+
+    /// Iterate every enemy with its tile coordinates and kind. Used by the
+    /// gameplay renderer; deliberately yields no `EntityId`.
+    pub fn enemies_iter(&self) -> impl Iterator<Item = ((usize, usize), EnemyKind)> + '_ {
+        self.enemies
+            .iter_with_pos(&self.world)
+            .map(|(_, pos, kind)| (pos, kind))
     }
 
     pub fn idx(&self, x: usize, y: usize) -> usize {

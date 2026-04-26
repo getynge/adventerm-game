@@ -1,12 +1,17 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use adventerm_lib::{save, Direction, GameState, Save, SaveSlot};
+use adventerm_lib::{
+    battle, save, BattleResult, BattleState, BattleTurn, Direction, GameState, MoveOutcome, Save,
+    SaveSlot,
+};
 use crossterm::event::{Event, KeyCode, KeyEventKind};
 
 use crate::config::{self, BoundAction, ColorScheme, Config, Key, SchemeRegistry};
 use crate::input::{Action, TextInputAction};
-use crate::menu::{MainMenuOption, MenuState, OptionsRow, PauseMenuOption, SaveBrowser, Status};
+use crate::menu::{
+    InventoryTab, MainMenuOption, MenuState, OptionsRow, PauseMenuOption, SaveBrowser, Status,
+};
 
 const MAX_SAVE_NAME_CHARS: usize = 32;
 const MAX_SEED_CHARS: usize = 32;
@@ -21,9 +26,17 @@ pub enum Screen {
         status: Status,
     },
     Playing(GameState),
+    Battle {
+        game: GameState,
+        battle: BattleState,
+        cursor: usize,
+        status: Status,
+    },
     Inventory {
         game: GameState,
-        cursor: usize,
+        tab: InventoryTab,
+        item_cursor: usize,
+        ability_cursor: usize,
         status: Status,
     },
     Paused {
@@ -130,6 +143,7 @@ impl App {
             Screen::MainMenu { .. } => self.handle_main_menu(action),
             Screen::LoadGame { .. } => self.handle_load_game(action),
             Screen::Playing(_) => self.handle_playing(action),
+            Screen::Battle { .. } => self.handle_battle(action),
             Screen::Inventory { .. } => self.handle_inventory(action),
             Screen::Paused { .. } => self.handle_pause_menu(action),
             Screen::SaveSlotPicker { .. } => self.handle_slot_picker(action),
@@ -377,6 +391,7 @@ impl App {
             | Screen::LoadGame { status, .. }
             | Screen::Inventory { status, .. }
             | Screen::Paused { status, .. }
+            | Screen::Battle { status, .. }
             | Screen::SaveSlotPicker { status, .. }
             | Screen::NameEntry { status, .. }
             | Screen::SeedEntry { status, .. }
@@ -390,31 +405,22 @@ impl App {
         let Screen::Playing(state) = &mut self.screen else {
             return;
         };
+        let outcome: Option<MoveOutcome> = match action {
+            Action::Up => Some(state.move_player(Direction::Up)),
+            Action::Down => Some(state.move_player(Direction::Down)),
+            Action::Left => Some(state.move_player(Direction::Left)),
+            Action::Right => Some(state.move_player(Direction::Right)),
+            Action::QuickUp => Some(state.quick_move(Direction::Up)),
+            Action::QuickDown => Some(state.quick_move(Direction::Down)),
+            Action::QuickLeft => Some(state.quick_move(Direction::Left)),
+            Action::QuickRight => Some(state.quick_move(Direction::Right)),
+            _ => None,
+        };
+        if let Some(MoveOutcome::Encounter(entity)) = outcome {
+            self.start_battle(entity);
+            return;
+        }
         match action {
-            Action::Up => {
-                state.move_player(Direction::Up);
-            }
-            Action::Down => {
-                state.move_player(Direction::Down);
-            }
-            Action::Left => {
-                state.move_player(Direction::Left);
-            }
-            Action::Right => {
-                state.move_player(Direction::Right);
-            }
-            Action::QuickUp => {
-                state.quick_move(Direction::Up);
-            }
-            Action::QuickDown => {
-                state.quick_move(Direction::Down);
-            }
-            Action::QuickLeft => {
-                state.quick_move(Direction::Left);
-            }
-            Action::QuickRight => {
-                state.quick_move(Direction::Right);
-            }
             Action::Confirm => {
                 if state.player_on_door().is_some() {
                     state.interact();
@@ -429,7 +435,9 @@ impl App {
                 };
                 self.screen = Screen::Inventory {
                     game,
-                    cursor: 0,
+                    tab: InventoryTab::Items,
+                    item_cursor: 0,
+                    ability_cursor: 0,
                     status: Status::None,
                 };
             }
@@ -448,23 +456,164 @@ impl App {
         }
     }
 
-    fn handle_inventory(&mut self, action: Action) {
-        let Screen::Inventory { game, cursor, .. } = &mut self.screen else {
+    fn start_battle(&mut self, entity: adventerm_lib::EntityId) {
+        let Screen::Playing(_) = &self.screen else {
             return;
         };
-        let len = game.inventory.len();
-        match action {
-            Action::Up if *cursor > 0 => {
-                *cursor -= 1;
+        let Screen::Playing(game) = std::mem::replace(&mut self.screen, Screen::Quit) else {
+            return;
+        };
+        let battle_state = match battle::start_battle(&game, entity) {
+            Some(s) => s,
+            None => {
+                // Enemy went away between move and start (shouldn't happen);
+                // bail back to play.
+                self.screen = Screen::Playing(game);
+                return;
             }
-            Action::Down if *cursor + 1 < len => {
-                *cursor += 1;
+        };
+        self.screen = Screen::Battle {
+            game,
+            battle: battle_state,
+            cursor: 0,
+            status: Status::None,
+        };
+    }
+
+    fn handle_battle(&mut self, action: Action) {
+        let Screen::Battle {
+            game,
+            battle: state,
+            cursor,
+            status,
+        } = &mut self.screen
+        else {
+            return;
+        };
+
+        // Resolved → any keypress returns to gameplay (or main menu on defeat).
+        if let Some(result) = state.result() {
+            if matches!(action, Action::Confirm | Action::Escape) {
+                self.finish_battle(result);
             }
-            Action::Confirm => {
+            return;
+        }
+
+        match state.turn {
+            BattleTurn::Player => match action {
+                Action::Up => {
+                    if *cursor > 0 {
+                        *cursor -= 1;
+                    }
+                }
+                Action::Down => {
+                    let slots = game.abilities.active_slots.len();
+                    if *cursor + 1 < slots {
+                        *cursor += 1;
+                    }
+                }
+                Action::Confirm => {
+                    let slot = *cursor;
+                    match battle::apply_player_ability(game, state, slot) {
+                        Ok(()) => *status = Status::None,
+                        Err(_) => {
+                            *status = Status::Error("That slot is empty.".into());
+                        }
+                    }
+                }
+                Action::Escape => {
+                    state.turn = BattleTurn::Resolved(BattleResult::Fled);
+                }
+                _ => {}
+            },
+            BattleTurn::Enemy => {
+                if matches!(action, Action::Confirm | Action::Up | Action::Down | Action::Escape) {
+                    battle::apply_enemy_turn(game, state);
+                }
+            }
+            BattleTurn::Resolved(_) => {}
+        }
+    }
+
+    fn finish_battle(&mut self, result: BattleResult) {
+        let Screen::Battle { .. } = &self.screen else {
+            return;
+        };
+        let prev = std::mem::replace(&mut self.screen, Screen::Quit);
+        let Screen::Battle {
+            mut game, battle, ..
+        } = prev
+        else {
+            return;
+        };
+        match result {
+            BattleResult::Victory => {
+                game.cur_health = battle.player_cur_hp;
+                game.defeat_enemy(battle.enemy_room, battle.enemy_id);
+                self.screen = Screen::Playing(game);
+            }
+            BattleResult::Fled => {
+                game.cur_health = battle.player_cur_hp;
+                self.screen = Screen::Playing(game);
+            }
+            BattleResult::Defeat => {
+                let any_saves = !self.list_saves().is_empty();
+                self.screen = main_menu_screen(any_saves, Status::Info("You have fallen.".into()));
+            }
+        }
+    }
+
+    fn handle_inventory(&mut self, action: Action) {
+        let Screen::Inventory {
+            game,
+            tab,
+            item_cursor,
+            ability_cursor,
+            ..
+        } = &mut self.screen
+        else {
+            return;
+        };
+        match (action, *tab) {
+            (Action::Inventory, _) => {
+                *tab = tab.next();
+            }
+            (Action::Escape, _) => {
+                let Screen::Inventory { game, .. } =
+                    std::mem::replace(&mut self.screen, Screen::Quit)
+                else {
+                    return;
+                };
+                self.screen = Screen::Playing(game);
+            }
+            (Action::Up, InventoryTab::Items) => {
+                if *item_cursor > 0 {
+                    *item_cursor -= 1;
+                }
+            }
+            (Action::Down, InventoryTab::Items) => {
+                let len = game.inventory.len();
+                if *item_cursor + 1 < len {
+                    *item_cursor += 1;
+                }
+            }
+            (Action::Up, InventoryTab::Abilities) => {
+                if *ability_cursor > 0 {
+                    *ability_cursor -= 1;
+                }
+            }
+            (Action::Down, InventoryTab::Abilities) => {
+                let slots = game.abilities.active_slots.len();
+                if *ability_cursor + 1 < slots {
+                    *ability_cursor += 1;
+                }
+            }
+            (Action::Confirm, InventoryTab::Items) => {
+                let len = game.inventory.len();
                 if len == 0 {
                     return;
                 }
-                let slot = (*cursor).min(len - 1);
+                let slot = (*item_cursor).min(len - 1);
                 let _ = game.place_item(slot);
                 let Screen::Inventory { game, .. } =
                     std::mem::replace(&mut self.screen, Screen::Quit)
@@ -473,14 +622,9 @@ impl App {
                 };
                 self.screen = Screen::Playing(game);
             }
-            Action::Inventory | Action::Escape => {
-                let Screen::Inventory { game, .. } =
-                    std::mem::replace(&mut self.screen, Screen::Quit)
-                else {
-                    return;
-                };
-                self.screen = Screen::Playing(game);
-            }
+            // Confirm in Abilities/Stats is a no-op for now — abilities have
+            // no in-menu interaction yet (they're used during battle), and the
+            // Stats tab is read-only per the approved scope.
             _ => {}
         }
     }
