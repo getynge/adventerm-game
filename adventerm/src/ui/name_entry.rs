@@ -1,46 +1,46 @@
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Flex, Layout, Rect};
 use ratatui::style::Style;
-use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
 use crate::config::{rgb_to_color, MenuPalette};
-use crate::menu::PauseMenuOption;
-use crate::ui::accel;
 
-pub fn render(frame: &mut Frame, cursor: usize, palette: &MenuPalette) {
+pub fn render(frame: &mut Frame, buffer: &str, palette: &MenuPalette) {
     let area = frame.area();
-    let options = &PauseMenuOption::ALL;
-    let popup = popup_rect(area, 24, 2 + options.len() as u16);
-
+    let popup = popup_rect(area, 44, 5);
     frame.render_widget(Clear, popup);
 
     let bg = rgb_to_color(palette.background);
     let text = rgb_to_color(palette.text);
     let title = rgb_to_color(palette.title);
+
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" Paused ")
+        .title(" Save name ")
         .title_style(Style::default().fg(title).bg(bg))
         .style(Style::default().fg(text).bg(bg));
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
 
-    let labels: Vec<&str> = options.iter().map(|o| o.label()).collect();
-    let accels = accel::assign(&labels);
+    let [input_area, _gap, footer_area] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .areas(inner);
 
-    let lines: Vec<Line> = labels
-        .iter()
-        .zip(accels.iter())
-        .enumerate()
-        .map(|(i, (label, a))| accel::line(label, *a, i == cursor, palette))
-        .collect();
-
+    let input = format!("{buffer}_");
     frame.render_widget(
-        Paragraph::new(lines)
+        Paragraph::new(input)
             .alignment(Alignment::Center)
             .style(Style::default().fg(text).bg(bg)),
-        inner,
+        input_area,
+    );
+    frame.render_widget(
+        Paragraph::new("Enter: save   Esc: cancel")
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(text).bg(bg)),
+        footer_area,
     );
 }
 

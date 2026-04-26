@@ -1,0 +1,19 @@
+{
+  "name": "high-contrast",
+  "world": {
+    "player": [255, 255, 0],
+    "interactive": [0, 255, 255],
+    "floor": [255, 255, 255],
+    "wall": [128, 128, 128],
+    "background": [0, 0, 0]
+  },
+  "menu": {
+    "background": [0, 0, 0],
+    "text": [255, 255, 255],
+    "title": [255, 255, 0],
+    "cursor_fg": [0, 0, 0],
+    "cursor_bg": [255, 255, 255],
+    "accel": [255, 255, 0],
+    "status": [0, 255, 255]
+  }
+}

@@ -1,4 +1,5 @@
 mod app;
+mod config;
 mod input;
 mod menu;
 mod relaunch;

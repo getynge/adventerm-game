@@ -3,6 +3,8 @@ use std::collections::HashSet;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 
+use crate::config::{rgb_to_color, MenuPalette};
+
 const RESERVED: &[char] = &['w', 'a', 's', 'd', 'h', 'j', 'k', 'l'];
 
 pub fn assign(labels: &[&str]) -> Vec<Option<usize>> {
@@ -34,11 +36,22 @@ pub fn matches(label: &str, accel: Option<usize>, key: char) -> bool {
     c.eq_ignore_ascii_case(&key)
 }
 
-pub fn line(label: &str, accel: Option<usize>, selected: bool) -> Line<'static> {
+pub fn line(
+    label: &str,
+    accel: Option<usize>,
+    selected: bool,
+    palette: &MenuPalette,
+) -> Line<'static> {
+    let bg = rgb_to_color(palette.background);
+    let text = rgb_to_color(palette.text);
+    let accel_color = rgb_to_color(palette.accel);
+    let cursor_fg = rgb_to_color(palette.cursor_fg);
+    let cursor_bg = rgb_to_color(palette.cursor_bg);
+
     let base = if selected {
-        Style::default().add_modifier(Modifier::REVERSED)
+        Style::default().fg(cursor_fg).bg(cursor_bg)
     } else {
-        Style::default()
+        Style::default().fg(text).bg(bg)
     };
     let (lead, trail) = if selected { ("> ", " <") } else { ("  ", "  ") };
 
@@ -55,10 +68,12 @@ pub fn line(label: &str, accel: Option<usize>, selected: bool) -> Line<'static> 
             if !before.is_empty() {
                 spans.push(Span::styled(before.to_string(), base));
             }
-            spans.push(Span::styled(
-                accel_char.to_string(),
-                base.add_modifier(Modifier::UNDERLINED),
-            ));
+            let accel_style = if selected {
+                base.add_modifier(Modifier::UNDERLINED)
+            } else {
+                base.fg(accel_color).add_modifier(Modifier::UNDERLINED)
+            };
+            spans.push(Span::styled(accel_char.to_string(), accel_style));
             if !after.is_empty() {
                 spans.push(Span::styled(after.to_string(), base));
             }
@@ -70,13 +85,8 @@ pub fn line(label: &str, accel: Option<usize>, selected: bool) -> Line<'static> 
     Line::from(spans)
 }
 
-pub fn find_by_hotkey<F: Fn(usize) -> &'static str>(
-    count: usize,
-    label: F,
-    key: char,
-) -> Option<usize> {
-    let labels: Vec<&str> = (0..count).map(&label).collect();
-    let accels = assign(&labels);
+pub fn find_by_hotkey(labels: &[&str], key: char) -> Option<usize> {
+    let accels = assign(labels);
     accels
         .iter()
         .enumerate()
