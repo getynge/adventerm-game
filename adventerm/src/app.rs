@@ -4,6 +4,7 @@ use adventerm_lib::{Direction, GameState, PauseMenuOption};
 use crossterm::event::Event;
 
 use crate::input::Action;
+use crate::ui::menu;
 
 pub struct App {
     state: GameState,
@@ -59,6 +60,15 @@ impl App {
                 let option = options[self.main_menu_cursor];
                 self.transition(|s| s.select_main_menu(option));
             }
+            Action::Hotkey(c) => {
+                if let Some(i) =
+                    menu::find_by_hotkey(options.len(), |i| options[i].label(), c)
+                {
+                    self.main_menu_cursor = i;
+                    let option = options[i];
+                    self.transition(|s| s.select_main_menu(option));
+                }
+            }
             _ => {}
         }
     }
@@ -92,6 +102,15 @@ impl App {
             }
             Action::Escape => {
                 self.transition(|s| s.select_pause_menu(PauseMenuOption::Resume));
+            }
+            Action::Hotkey(c) => {
+                if let Some(i) =
+                    menu::find_by_hotkey(options.len(), |i| options[i].label(), c)
+                {
+                    self.pause_menu_cursor = i;
+                    let option = options[i];
+                    self.transition(|s| s.select_pause_menu(option));
+                }
             }
             _ => {}
         }

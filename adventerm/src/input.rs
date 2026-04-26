@@ -8,6 +8,7 @@ pub enum Action {
     Right,
     Confirm,
     Escape,
+    Hotkey(char),
 }
 
 pub fn translate(event: &Event) -> Option<Action> {
@@ -18,12 +19,19 @@ pub fn translate(event: &Event) -> Option<Action> {
         return None;
     }
     match key.code {
-        KeyCode::Up | KeyCode::Char('w') | KeyCode::Char('k') => Some(Action::Up),
-        KeyCode::Down | KeyCode::Char('s') | KeyCode::Char('j') => Some(Action::Down),
-        KeyCode::Left | KeyCode::Char('a') | KeyCode::Char('h') => Some(Action::Left),
-        KeyCode::Right | KeyCode::Char('d') | KeyCode::Char('l') => Some(Action::Right),
+        KeyCode::Up => Some(Action::Up),
+        KeyCode::Down => Some(Action::Down),
+        KeyCode::Left => Some(Action::Left),
+        KeyCode::Right => Some(Action::Right),
         KeyCode::Enter | KeyCode::Char(' ') => Some(Action::Confirm),
         KeyCode::Esc => Some(Action::Escape),
+        KeyCode::Char(c) => match c.to_ascii_lowercase() {
+            'w' | 'k' => Some(Action::Up),
+            's' | 'j' => Some(Action::Down),
+            'a' | 'h' => Some(Action::Left),
+            'd' | 'l' => Some(Action::Right),
+            _ => Some(Action::Hotkey(c)),
+        },
         _ => None,
     }
 }

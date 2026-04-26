@@ -2,8 +2,10 @@ use adventerm_lib::MainMenuOption;
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Flex, Layout};
 use ratatui::style::{Modifier, Style};
-use ratatui::text::{Line, Span};
+use ratatui::text::Line;
 use ratatui::widgets::Paragraph;
+
+use crate::ui::menu;
 
 pub fn render(frame: &mut Frame, options: &[MainMenuOption], cursor: usize) {
     let area = frame.area();
@@ -22,20 +24,14 @@ pub fn render(frame: &mut Frame, options: &[MainMenuOption], cursor: usize) {
         .style(Style::default().add_modifier(Modifier::BOLD));
     frame.render_widget(title, title_area);
 
-    let lines: Vec<Line> = options
+    let labels: Vec<&str> = options.iter().map(|o| o.label()).collect();
+    let accels = menu::assign(&labels);
+
+    let lines: Vec<Line> = labels
         .iter()
+        .zip(accels.iter())
         .enumerate()
-        .map(|(i, option)| {
-            let label = option.label();
-            if i == cursor {
-                Line::from(Span::styled(
-                    format!("> {label} <"),
-                    Style::default().add_modifier(Modifier::REVERSED),
-                ))
-            } else {
-                Line::from(format!("  {label}  "))
-            }
-        })
+        .map(|(i, (label, accel))| menu::line(label, *accel, i == cursor))
         .collect();
 
     let [options_centered] = Layout::horizontal([Constraint::Length(12)])

@@ -1,5 +1,6 @@
 mod gameplay;
 mod main_menu;
+pub mod menu;
 mod pause_menu;
 
 use adventerm_lib::GameState;
