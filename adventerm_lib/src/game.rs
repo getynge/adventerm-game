@@ -1,31 +1,21 @@
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
 
 use crate::abilities::Abilities;
-use crate::dungeon::{step_inward, Dungeon};
+use crate::dungeon::Dungeon;
 use crate::ecs::EntityId;
-use crate::enemies::{self, EnemyTickOutcome};
-use crate::items::{self, ItemKind, PlaceCtx};
-use crate::rng::Rng;
+use crate::explored::ExploredSubsystem;
+use crate::items::ItemKind;
+use crate::player::PlayerSubsystem;
 use crate::room::{DoorId, Room, RoomId, TileKind};
 use crate::stats::Stats;
-use crate::visibility;
-use crate::world::{Direction, Tile};
+use crate::systems;
+use crate::world::Tile;
 
 /// Constant XOR'd into the dungeon seed when re-seeding the per-tick enemy
-/// RNG after a load. Keeps enemy AI reproducible from the dungeon seed alone
-/// without making the AI sequence identical to dungeon generation's draws.
-const ENEMY_RNG_SALT: u64 = 0x4144_5645_4E54_524D;
-
-fn step(direction: Direction, x: usize, y: usize) -> (isize, isize) {
-    match direction {
-        Direction::Up => (x as isize, y as isize - 1),
-        Direction::Down => (x as isize, y as isize + 1),
-        Direction::Left => (x as isize - 1, y as isize),
-        Direction::Right => (x as isize + 1, y as isize),
-    }
-}
+/// RNG. Keeps enemy AI reproducible from the dungeon seed alone without
+/// making the AI sequence identical to dungeon generation's draws. Exposed
+/// so the `systems::enemy_tick` module can use the same value.
+pub const ENEMY_RNG_SALT: u64 = 0x4144_5645_4E54_524D;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MoveOutcome {
@@ -45,54 +35,49 @@ pub struct DoorEvent {
 
 pub use crate::items::PlaceOutcome;
 
-#[derive(Debug, Clone, Eq, Serialize, Deserialize)]
+/// Top-level game container. All player-side state lives in ECS components on
+/// the `player` subsystem; per-room exploration memory lives in the `explored`
+/// subsystem; per-room construct state (lights, items, enemies) lives on
+/// `Room`. `GameState` itself holds no loose game-logic fields — it only
+/// dispatches to the subsystems.
+///
+/// `pending_encounter` is a transient slot a handler can fill during
+/// dispatch to surface "the player ended adjacent to an enemy" up to the
+/// binary. It is `#[serde(skip)]` because no in-flight encounter survives
+/// across save/load. The binary reads it via `take_pending_encounter`
+/// after each dispatch.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GameState {
     pub dungeon: Dungeon,
     pub current_room: RoomId,
-    pub player: (usize, usize),
     #[serde(default)]
-    pub explored: HashMap<RoomId, Vec<bool>>,
+    pub player: PlayerSubsystem,
     #[serde(default)]
-    pub inventory: Vec<ItemKind>,
-    /// Player stat block. Maximum HP comes from `stats.health`; the player's
-    /// current HP is tracked separately in `cur_health`.
-    #[serde(default)]
-    pub stats: Stats,
-    /// Player's current HP. Defaults to `stats.health` (full) on load via
-    /// `refresh_visibility` if it ever falls out of sync; for now we treat
-    /// the saved value as authoritative.
-    #[serde(default = "default_cur_health")]
-    pub cur_health: u8,
-    /// Player abilities — active slots, passive slots, learned lists.
-    #[serde(default)]
-    pub abilities: Abilities,
+    pub explored: ExploredSubsystem,
     #[serde(skip)]
-    visible: Vec<bool>,
-    /// Cached "tile is within some persistent light's reach" bitmap for the
-    /// current room. Recomputed in `refresh_visibility`.
-    #[serde(skip)]
-    lit: Vec<bool>,
-    /// Per-game RNG used by the enemy movement tick. Re-seeded on load from
-    /// the dungeon seed (`Save::from_bytes` calls `refresh_visibility`, which
-    /// also rehydrates this).
-    #[serde(skip)]
-    enemy_rng: Option<Rng>,
-}
-
-fn default_cur_health() -> u8 {
-    Stats::default().health
+    pending_encounter: Option<EntityId>,
 }
 
 impl PartialEq for GameState {
     fn eq(&self, other: &Self) -> bool {
+        // Transient `pending_encounter` is intentionally excluded from
+        // equality so a freshly-loaded state and the pre-save state
+        // compare equal during round-trip tests.
         self.dungeon == other.dungeon
             && self.current_room == other.current_room
             && self.player == other.player
             && self.explored == other.explored
-            && self.inventory == other.inventory
-            && self.stats == other.stats
-            && self.cur_health == other.cur_health
-            && self.abilities == other.abilities
+    }
+}
+
+impl Eq for GameState {}
+
+// `Default` for `PlayerSubsystem` is needed for `#[serde(default)]` to fall
+// back gracefully on an old save shape. It spawns a player at the origin;
+// `new_seeded` immediately overwrites the position with a real floor tile.
+impl Default for PlayerSubsystem {
+    fn default() -> Self {
+        PlayerSubsystem::new_at((0, 0))
     }
 }
 
@@ -100,34 +85,54 @@ impl GameState {
     pub fn new_seeded(seed: u64) -> Self {
         let dungeon = Dungeon::generate(seed);
         let start_room = RoomId(0);
-        let player = dungeon
-            .room(start_room)
-            .first_floor()
-            .unwrap_or((0, 0));
-        let stats = Stats::default();
+        let player_pos = dungeon.room(start_room).first_floor().unwrap_or((0, 0));
+        let player = PlayerSubsystem::new_at(player_pos);
         let mut state = Self {
             dungeon,
             current_room: start_room,
             player,
-            explored: HashMap::new(),
-            inventory: Vec::new(),
-            stats,
-            cur_health: stats.health,
-            abilities: Abilities::default(),
-            visible: Vec::new(),
-            lit: Vec::new(),
-            enemy_rng: Some(Rng::new(seed ^ ENEMY_RNG_SALT)),
+            explored: ExploredSubsystem::default(),
+            pending_encounter: None,
         };
+        // Seed the per-game enemy RNG up front so behavior matches the
+        // pre-ECS layout exactly. (Lazy rehydration covers the load path.)
+        let _ = state.player.enemy_rng_mut(state.dungeon.seed, ENEMY_RNG_SALT);
         state.refresh_visibility();
         state
     }
+
+    // ---- read-only facade -------------------------------------------------
 
     pub fn current_room(&self) -> &Room {
         self.dungeon.room(self.current_room)
     }
 
+    pub fn player_pos(&self) -> (usize, usize) {
+        self.player.position()
+    }
+
+    pub fn stats(&self) -> &Stats {
+        self.player.stats()
+    }
+
+    pub fn cur_health(&self) -> u8 {
+        self.player.cur_health()
+    }
+
+    pub fn set_cur_health(&mut self, hp: u8) {
+        self.player.set_cur_health(hp);
+    }
+
+    pub fn inventory(&self) -> &[ItemKind] {
+        self.player.inventory()
+    }
+
+    pub fn abilities(&self) -> &Abilities {
+        self.player.abilities()
+    }
+
     pub fn tile_at(&self, x: usize, y: usize) -> Tile {
-        if (x, y) == self.player {
+        if (x, y) == self.player.position() {
             return Tile::Player;
         }
         self.terrain_at(x, y)
@@ -151,8 +156,9 @@ impl GameState {
             return false;
         }
         let i = room.idx(x, y);
-        self.visible.get(i).copied().unwrap_or(false)
-            || self.lit.get(i).copied().unwrap_or(false)
+        let cache = self.player.visibility();
+        cache.visible.get(i).copied().unwrap_or(false)
+            || cache.lit.get(i).copied().unwrap_or(false)
     }
 
     pub fn is_explored(&self, x: usize, y: usize) -> bool {
@@ -160,15 +166,12 @@ impl GameState {
         if x >= room.width || y >= room.height {
             return false;
         }
-        let i = room.idx(x, y);
-        self.explored
-            .get(&self.current_room)
-            .and_then(|m| m.get(i).copied())
-            .unwrap_or(false)
+        self.explored.is_explored(self.current_room, room.idx(x, y))
     }
 
     pub fn player_on_door(&self) -> Option<DoorId> {
-        match self.current_room().kind_at(self.player.0, self.player.1) {
+        let (px, py) = self.player.position();
+        match self.current_room().kind_at(px, py) {
             Some(TileKind::Door(id)) => Some(id),
             _ => None,
         }
@@ -176,184 +179,89 @@ impl GameState {
 
     /// True iff there is at least one item resting on the player's tile.
     pub fn items_here(&self) -> bool {
-        self.current_room().has_item_at(self.player)
+        self.current_room().has_item_at(self.player.position())
     }
 
     /// First item resting on the player's tile, if any. Used by the renderer
     /// to surface a pickup prompt.
     pub fn peek_item_here(&self) -> Option<ItemKind> {
-        self.current_room().items_at(self.player).next()
+        self.current_room().items_at(self.player.position()).next()
     }
 
-    /// Pick up one item at the player's tile, push it into the inventory,
-    /// return it for status reporting. Returns `None` if no item is here.
-    pub fn pick_up_here(&mut self) -> Option<ItemKind> {
-        let pos = self.player;
-        let room = self.dungeon.room_mut(self.current_room);
-        let kind = room.items.take_at(&mut room.world, pos)?;
-        self.inventory.push(kind);
-        Some(kind)
+    // ---- transient dispatch slot ----------------------------------------
+
+    /// Set during a dispatch when a handler determines the player is in an
+    /// encounter (e.g. an enemy stepped adjacent during the enemy-tick
+    /// reaction to a `PlayerMoved`). Cleared by `take_pending_encounter`.
+    pub fn set_pending_encounter(&mut self, entity: EntityId) {
+        self.pending_encounter = Some(entity);
     }
 
-    /// Place the inventory item at `slot` onto the world by dispatching to
-    /// the kind's `ItemBehavior`. `GameState` deliberately does **not** match
-    /// on `ItemKind` — the registry in `items::behavior_for` owns that.
-    pub fn place_item(&mut self, slot: usize) -> Option<PlaceOutcome> {
-        let kind = *self.inventory.get(slot)?;
-        let player_pos = self.player;
-        let room = self.dungeon.room_mut(self.current_room);
-        let mut ctx = PlaceCtx {
-            player_pos,
-            world: &mut room.world,
-            lighting: &mut room.lighting,
-        };
-        let outcome = items::behavior_for(kind).on_place(&mut ctx);
-        self.inventory.remove(slot);
-        self.refresh_visibility();
-        Some(outcome)
+    /// Read and clear the pending-encounter slot. The binary calls this
+    /// after each `dispatch` to decide whether to open the battle screen.
+    pub fn take_pending_encounter(&mut self) -> Option<EntityId> {
+        self.pending_encounter.take()
     }
 
-    pub fn move_player(&mut self, direction: Direction) -> MoveOutcome {
-        let (x, y) = self.player;
-        let (nx, ny) = step(direction, x, y);
-        let room = self.current_room();
-        if !room.in_bounds(nx, ny) {
-            return MoveOutcome::Blocked;
-        }
-        let (nx, ny) = (nx as usize, ny as usize);
-        if !room.is_walkable(nx, ny) {
-            return MoveOutcome::Blocked;
-        }
-        // Walking into a tile occupied by an enemy starts a battle without
-        // moving the player on top of the enemy.
-        if let Some(entity) = room.enemies.entity_at(&room.world, (nx, ny)) {
-            return MoveOutcome::Encounter(entity);
-        }
-        self.player = (nx, ny);
-        self.refresh_visibility();
-        if let Some(entity) = self.tick_enemies_for_player_move() {
-            return MoveOutcome::Encounter(entity);
-        }
-        MoveOutcome::Moved
+    /// Non-clearing read. Used by multi-step actions (slide / quick-move)
+    /// that need to abort early on the first encounter without consuming
+    /// the slot before the binary can see it.
+    pub fn peek_pending_encounter(&self) -> Option<EntityId> {
+        self.pending_encounter
     }
 
-    /// Slide the player as far as possible in `direction` without stepping
-    /// onto an interactable tile (currently doors). Stops when the next tile
-    /// is out of bounds, a wall, a door, or an enemy. Triggers a single
-    /// enemy tick at the end if the player moved at least one tile.
-    pub fn quick_move(&mut self, direction: Direction) -> MoveOutcome {
-        let mut moved = false;
-        loop {
-            let (x, y) = self.player;
-            let (nx, ny) = step(direction, x, y);
-            let room = self.current_room();
-            if !room.in_bounds(nx, ny) {
-                break;
-            }
-            let (nx, ny) = (nx as usize, ny as usize);
-            match room.kind_at(nx, ny) {
-                Some(TileKind::Floor) => {
-                    if room.enemies.entity_at(&room.world, (nx, ny)).is_some() {
-                        break;
-                    }
-                    self.player = (nx, ny);
-                    moved = true;
-                }
-                _ => break,
-            }
-        }
-        if moved {
-            self.refresh_visibility();
-            if let Some(entity) = self.tick_enemies_for_player_move() {
-                return MoveOutcome::Encounter(entity);
-            }
-            MoveOutcome::Moved
-        } else {
-            MoveOutcome::Blocked
-        }
-    }
-
-    /// Run a single enemy tick in the current room. Returns the engaging
-    /// enemy entity if the tick produces an encounter. Lazily seeds the
-    /// per-game RNG from the dungeon seed if a load left it empty.
-    fn tick_enemies_for_player_move(&mut self) -> Option<EntityId> {
-        let player = self.player;
-        let room_id = self.current_room;
-        // Lazily rehydrate the RNG: deserialized states have `enemy_rng = None`.
-        if self.enemy_rng.is_none() {
-            self.enemy_rng = Some(Rng::new(self.dungeon.seed ^ ENEMY_RNG_SALT));
-        }
-        let rng = self.enemy_rng.as_mut()?;
-        let room = self.dungeon.room_mut(room_id);
-        match enemies::tick_enemies(room, player, rng) {
-            EnemyTickOutcome::EncounterTriggered(e) => Some(e),
-            EnemyTickOutcome::Quiet => None,
-        }
-    }
-
-    /// Despawn an enemy from the room it lives in. Used by the binary after
-    /// a battle ends in victory.
-    pub fn defeat_enemy(&mut self, room: RoomId, entity: EntityId) {
-        let room = self.dungeon.room_mut(room);
-        room.enemies.despawn(&mut room.world, entity);
-    }
-
-    pub fn interact(&mut self) -> Option<DoorEvent> {
-        let here = self.current_room().kind_at(self.player.0, self.player.1)?;
-        let door_id = match here {
-            TileKind::Door(id) => id,
-            _ => return None,
-        };
-        let from = door_id;
-        let to = self.dungeon.door(door_id).leads_to;
-        let target_door = self.dungeon.door(to).clone();
-        let target_room = target_door.owner;
-        let landing = step_inward(target_door.pos, self.dungeon.room(target_room));
-        // Leaving the current room: any active flares burn out into regular
-        // torches before we move on.
-        let leaving_room = self.current_room;
-        self.dungeon.room_mut(leaving_room).lighting.burn_out_flares();
-        self.current_room = target_room;
-        self.player = landing;
-        self.refresh_visibility();
-        Some(DoorEvent {
-            from,
-            to,
-            new_room: target_room,
-        })
-    }
-
-    /// Recompute `visible` and `lit` for the current room and OR them into
-    /// `explored`. Call after any state change that affects what the player
-    /// can see (movement, room transition, light placement, post-deserialize
-    /// rehydration). The lighting computation lives in `visibility.rs`.
+    /// Recompute the player's visibility / lit cache for the current room
+    /// and merge the result into `explored`. Called during `new_seeded`
+    /// and save-load — both situations where dispatch is not running so
+    /// the [`crate::events::PlayerMoved`] handler chain cannot be relied
+    /// on. Gameplay-time refreshes happen automatically via the
+    /// [`crate::systems::visibility::VisibilityHandler`] subscription.
     pub fn refresh_visibility(&mut self) {
-        let room_id = self.current_room;
-        let player = self.player;
-        let room = self.dungeon.room(room_id);
-        let len = room.width * room.height;
-
-        visibility::compute_room_lighting(room, player, &mut self.visible, &mut self.lit);
-
-        let memory = self.explored.entry(room_id).or_insert_with(|| vec![false; len]);
-        if memory.len() != len {
-            memory.resize(len, false);
-        }
-        for ((m, v), l) in memory
-            .iter_mut()
-            .zip(self.visible.iter())
-            .zip(self.lit.iter())
-        {
-            if *v || *l {
-                *m = true;
-            }
-        }
+        systems::refresh_visibility(self);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use crate::action::dispatch;
+    use crate::actions::{
+        DefeatEnemyAction, InteractAction, MoveAction, PlaceItemAction, QuickMoveAction,
+    };
+    use crate::world::Direction;
+
+    fn step_dir(state: &mut GameState, dir: Direction) -> MoveOutcome {
+        let player = state.player.entity();
+        dispatch(state, player, MoveAction { direction: dir })
+    }
+
+    fn quick_dir(state: &mut GameState, dir: Direction) -> MoveOutcome {
+        let player = state.player.entity();
+        dispatch(state, player, QuickMoveAction { direction: dir })
+    }
+
+    fn interact(state: &mut GameState) -> Option<DoorEvent> {
+        let player = state.player.entity();
+        dispatch(state, player, InteractAction)
+    }
+
+    fn place(state: &mut GameState, slot: usize) -> Option<PlaceOutcome> {
+        let player = state.player.entity();
+        dispatch(state, player, PlaceItemAction { slot })
+    }
+
+    fn defeat(state: &mut GameState, room: RoomId, entity: EntityId) {
+        let player = state.player.entity();
+        dispatch(
+            state,
+            player,
+            DefeatEnemyAction {
+                room,
+                entity,
+            },
+        );
+    }
 
     fn find_door_position(state: &GameState) -> (DoorId, (usize, usize)) {
         let room = state.current_room();
@@ -370,7 +278,7 @@ mod tests {
     #[test]
     fn player_tile_is_always_visible() {
         let state = GameState::new_seeded(11);
-        let (px, py) = state.player;
+        let (px, py) = state.player_pos();
         assert!(state.is_visible(px, py));
         assert!(state.is_explored(px, py));
     }
@@ -378,8 +286,7 @@ mod tests {
     #[test]
     fn explored_persists_after_walking_away() {
         let mut state = GameState::new_seeded(11);
-        let (px, py) = state.player;
-        // Find any tile in current LOS that is not the player's tile.
+        let (px, py) = state.player_pos();
         let room = state.current_room();
         let mut witness = None;
         for y in 0..room.height {
@@ -395,8 +302,13 @@ mod tests {
         }
         let (wx, wy) = witness.expect("at least one tile besides the player should be visible");
         for _ in 0..crate::los::LOS_RANGE + 2 {
-            for dir in [Direction::Down, Direction::Up, Direction::Left, Direction::Right] {
-                if state.move_player(dir) == MoveOutcome::Moved {
+            for dir in [
+                Direction::Down,
+                Direction::Up,
+                Direction::Left,
+                Direction::Right,
+            ] {
+                if step_dir(&mut state, dir) == MoveOutcome::Moved {
                     break;
                 }
             }
@@ -408,33 +320,33 @@ mod tests {
     fn room_transition_uses_target_room_explored_map() {
         let mut state = GameState::new_seeded(17);
         let (_, door_pos) = find_door_position(&state);
-        state.player = door_pos;
+        state.player.set_position(door_pos);
         state.refresh_visibility();
         let origin_room = state.current_room;
-        let event = state.interact().expect("door interact should produce event");
+        let event = interact(&mut state).expect("door interact should produce event");
         let dest_room = event.new_room;
         assert_ne!(origin_room, dest_room);
-        let (px, py) = state.player;
+        let (px, py) = state.player_pos();
         assert!(state.is_visible(px, py));
         assert!(state.is_explored(px, py));
-        assert!(state.explored.contains_key(&origin_room));
-        assert!(state.explored.contains_key(&dest_room));
+        assert!(state.explored.contains_room(origin_room));
+        assert!(state.explored.contains_room(dest_room));
     }
 
     #[test]
     fn walk_into_wall_blocks() {
         let mut state = GameState::new_seeded(11);
-        let start = state.player;
+        let start = state.player_pos();
         let mut blocked_at_least_once = false;
         for _ in 0..50 {
-            if state.move_player(Direction::Up) == MoveOutcome::Blocked {
+            if step_dir(&mut state, Direction::Up) == MoveOutcome::Blocked {
                 blocked_at_least_once = true;
                 break;
             }
         }
         assert!(blocked_at_least_once);
         let room = state.current_room();
-        let (px, py) = state.player;
+        let (px, py) = state.player_pos();
         assert!(room.is_walkable(px, py));
         assert!(room.is_walkable(start.0, start.1));
     }
@@ -443,24 +355,25 @@ mod tests {
     fn interact_off_door_is_noop() {
         let mut state = GameState::new_seeded(13);
         let before_room = state.current_room;
-        let before_pos = state.player;
-        assert!(state.interact().is_none());
+        let before_pos = state.player_pos();
+        assert!(interact(&mut state).is_none());
         assert_eq!(state.current_room, before_room);
-        assert_eq!(state.player, before_pos);
+        assert_eq!(state.player_pos(), before_pos);
     }
 
     #[test]
     fn interact_on_door_swaps_room_and_repositions() {
         let mut state = GameState::new_seeded(17);
         let (door_id, door_pos) = find_door_position(&state);
-        state.player = door_pos;
+        state.player.set_position(door_pos);
         let prev_room = state.current_room;
-        let event = state.interact().expect("door interact should produce event");
+        let event = interact(&mut state).expect("door interact should produce event");
         assert_eq!(event.from, door_id);
         assert_ne!(state.current_room, prev_room);
         assert_eq!(state.current_room, event.new_room);
         let room = state.current_room();
-        assert!(room.is_walkable(state.player.0, state.player.1));
+        let (px, py) = state.player_pos();
+        assert!(room.is_walkable(px, py));
     }
 
     #[test]
@@ -493,9 +406,9 @@ mod tests {
         let (dir, start) = *candidates
             .first()
             .expect("door should have a floor tile in line with it");
-        state.player = start;
-        let outcome = state.quick_move(dir);
-        let (px, py) = state.player;
+        state.player.set_position(start);
+        let outcome = quick_dir(&mut state, dir);
+        let (px, py) = state.player_pos();
         assert_ne!((px, py), door_pos);
         assert!(matches!(
             state.current_room().kind_at(px, py),
@@ -515,11 +428,11 @@ mod tests {
     #[test]
     fn quick_move_into_wall_blocks_when_no_floor_step() {
         let mut state = GameState::new_seeded(11);
-        state.quick_move(Direction::Up);
-        let before = state.player;
-        let outcome = state.quick_move(Direction::Up);
+        quick_dir(&mut state, Direction::Up);
+        let before = state.player_pos();
+        let outcome = quick_dir(&mut state, Direction::Up);
         assert_eq!(outcome, MoveOutcome::Blocked);
-        assert_eq!(state.player, before);
+        assert_eq!(state.player_pos(), before);
     }
 
     #[test]
@@ -542,14 +455,15 @@ mod tests {
                     Some(TileKind::Floor)
                 )
             {
-                state.player = (nx as usize, ny as usize);
+                state.player.set_position((nx as usize, ny as usize));
                 placed = true;
                 break;
             }
         }
         assert!(placed, "door has no floor neighbor");
-        let dx = door_pos.0 as isize - state.player.0 as isize;
-        let dy = door_pos.1 as isize - state.player.1 as isize;
+        let (sx, sy) = state.player_pos();
+        let dx = door_pos.0 as isize - sx as isize;
+        let dy = door_pos.1 as isize - sy as isize;
         let dir = match (dx, dy) {
             (1, 0) => Direction::Right,
             (-1, 0) => Direction::Left,
@@ -557,19 +471,18 @@ mod tests {
             (0, -1) => Direction::Up,
             _ => unreachable!(),
         };
-        assert_eq!(state.move_player(dir), MoveOutcome::Moved);
-        assert_eq!(state.player, door_pos);
+        assert_eq!(step_dir(&mut state, dir), MoveOutcome::Moved);
+        assert_eq!(state.player_pos(), door_pos);
         assert_eq!(state.current_room, prev_room);
     }
 
     #[test]
     fn flare_lights_entire_room_then_burns_out() {
         let mut state = GameState::new_seeded(17);
-        let placement = state.player;
-        state.inventory.push(ItemKind::Flare);
-        assert_eq!(state.place_item(0), Some(PlaceOutcome::FlarePlaced));
+        let placement = state.player_pos();
+        state.player.inventory_push(ItemKind::Flare);
+        assert_eq!(place(&mut state, 0), Some(PlaceOutcome::FlarePlaced));
         let room_id = state.current_room;
-        // The flare is recorded on the room and every tile reads as visible.
         let room = state.current_room();
         assert!(room.lighting.any_flare_active());
         for y in 0..room.height {
@@ -577,13 +490,10 @@ mod tests {
                 assert!(state.is_visible(x, y));
             }
         }
-        // Walk to a door and traverse: the flare burns out into a torch.
         let (_, door_pos) = find_door_position(&state);
-        state.player = door_pos;
+        state.player.set_position(door_pos);
         state.refresh_visibility();
-        state
-            .interact()
-            .expect("door interact should produce event");
+        interact(&mut state).expect("door interact should produce event");
         assert_ne!(state.current_room, room_id);
         let prev = state.dungeon.room(room_id);
         assert!(!prev.lighting.any_flare_active());
@@ -593,7 +503,6 @@ mod tests {
     #[test]
     fn defeat_enemy_removes_it_from_room() {
         let mut state = GameState::new_seeded(11);
-        // Find any room with at least one enemy.
         let target_room = state
             .dungeon
             .rooms
@@ -601,7 +510,7 @@ mod tests {
             .find(|r| !r.enemies.is_empty())
             .map(|r| r.id);
         let Some(target_room) = target_room else {
-            return; // no-op if seed produced none
+            return;
         };
         let entity = state
             .dungeon
@@ -610,7 +519,7 @@ mod tests {
             .entities()
             .next()
             .unwrap();
-        state.defeat_enemy(target_room, entity);
+        defeat(&mut state, target_room, entity);
         let room = state.dungeon.room(target_room);
         assert!(!room.enemies.entities().any(|e| e == entity));
     }
@@ -619,36 +528,36 @@ mod tests {
     fn save_round_trip_preserves_combat_fields() {
         use crate::save::Save;
         let mut state = GameState::new_seeded(31);
-        state.cur_health = state.stats.health - 3;
+        state.set_cur_health(state.stats().health - 3);
         let save = Save::new("Combat Run".into(), state.clone());
         let bytes = save.to_bytes();
         let recovered = Save::from_bytes(&bytes).expect("decode");
-        assert_eq!(recovered.state.stats, state.stats);
-        assert_eq!(recovered.state.cur_health, state.cur_health);
-        assert_eq!(recovered.state.abilities, state.abilities);
+        assert_eq!(recovered.state.stats(), state.stats());
+        assert_eq!(recovered.state.cur_health(), state.cur_health());
+        assert_eq!(recovered.state.abilities(), state.abilities());
     }
 
     #[test]
     fn placing_torch_lights_surrounding_tiles() {
         let mut state = GameState::new_seeded(11);
-        let placement = state.player;
-        // Inject a torch into inventory.
-        state.inventory.push(ItemKind::Torch);
-        assert_eq!(state.place_item(0), Some(PlaceOutcome::TorchPlaced));
-        assert!(state.inventory.is_empty());
+        let placement = state.player_pos();
+        state.player.inventory_push(ItemKind::Torch);
+        assert_eq!(place(&mut state, 0), Some(PlaceOutcome::TorchPlaced));
+        assert!(state.inventory().is_empty());
         assert!(state.current_room().has_light_at(placement));
-        // Walk away far enough that the placement tile leaves player LOS, but
-        // it should still report visible because of the placed light.
         for _ in 0..crate::los::LOS_RANGE + 4 {
-            for dir in [Direction::Right, Direction::Down, Direction::Left, Direction::Up] {
-                if state.move_player(dir) == MoveOutcome::Moved {
+            for dir in [
+                Direction::Right,
+                Direction::Down,
+                Direction::Left,
+                Direction::Up,
+            ] {
+                if step_dir(&mut state, dir) == MoveOutcome::Moved {
                     break;
                 }
             }
         }
         if state.current_room == RoomId(0) {
-            // We may or may not be far enough away. If we are, the lit map
-            // should still show the placement tile.
             assert!(state.is_visible(placement.0, placement.1));
         }
     }

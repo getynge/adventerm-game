@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 use crate::ecs::World;
 use crate::items::flare::FlareBehavior;
 use crate::items::kind::ItemKind;
@@ -6,8 +8,9 @@ use crate::lighting::Lighting;
 
 /// Side-effect description returned by a placement behavior so the caller
 /// can surface a status string. The behavior itself has already mutated the
-/// world by the time this is returned.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// world by the time this is returned. Serialize/Deserialize are derived so
+/// it can ride along inside `DungeonEvent::ItemPlaced`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PlaceOutcome {
     TorchPlaced,
     FlarePlaced,

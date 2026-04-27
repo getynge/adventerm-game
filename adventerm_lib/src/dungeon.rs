@@ -1,6 +1,13 @@
+pub mod clock;
+pub mod doors;
+
+pub use clock::{DungeonClock, TurnCounter};
+pub use doors::{DoorLink, DoorOwner, DoorState, DoorSubsystem, DoorView};
+
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 
+use crate::ecs::World;
 use crate::enemies::EnemyKind;
 use crate::items::ItemKind;
 use crate::rng::Rng;
@@ -36,29 +43,25 @@ const GROUND_ITEM_CHANCE_DEN: u32 = 2;
 const FLARE_OF_ITEM_NUM: u32 = 1;
 const FLARE_OF_ITEM_DEN: u32 = 8;
 
-/// Per-room probability of spawning a single enemy. Enemies are placed during
-/// generation so the dungeon layout (and the encounter pacing) is fully
-/// determined by the seed.
-const ENEMY_SPAWN_NUM: u32 = 1;
-const ENEMY_SPAWN_DEN: u32 = 2;
-
 /// Available enemy kinds. Adding a new variant to `EnemyKind` is enough to
 /// pull it into the spawn pool.
 const ENEMY_KINDS: [EnemyKind; 1] = [EnemyKind::Slime];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Door {
-    pub id: DoorId,
-    pub owner: RoomId,
-    pub pos: (usize, usize),
-    pub leads_to: DoorId,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Dungeon {
     pub seed: u64,
     pub rooms: Vec<Room>,
-    pub doors: Vec<Door>,
+    /// Dungeon-scoped entity substrate. Hosts door entities and the
+    /// singleton clock entity carrying the turn counter and (transient)
+    /// `TickLog`.
+    #[serde(default)]
+    pub world: World,
+    #[serde(default)]
+    pub doors: DoorSubsystem,
+    /// Singleton clock entity wrapper. Owns the turn counter and the
+    /// transient event log; emits/queries route through here.
+    #[serde(default)]
+    pub clock: DungeonClock,
 }
 
 impl Dungeon {
@@ -86,34 +89,39 @@ impl Dungeon {
 
         let edges = build_edges(room_count, &mut rng);
 
-        let mut doors: Vec<Door> = Vec::new();
+        let mut world = World::default();
+        let mut clock = DungeonClock::default();
+        // Install the clock first so its entity id is stable at 0 — keeps
+        // door entity ids predictable for tests that snapshot the dungeon.
+        clock.install(&mut world);
+        let mut doors = DoorSubsystem::default();
         for (a, b) in edges {
-            let id_a = DoorId(doors.len() as u32);
-            let id_b = DoorId(doors.len() as u32 + 1);
+            // Spawn both door entities up-front so we have stable ids to
+            // stamp into the room tiles + the link records. On placement
+            // failure we roll back via `despawn` so the entity allocator
+            // doesn't keep dangling rows.
+            let id_a = doors.spawn(&mut world, RoomId(a as u32), (0, 0));
+            let id_b = doors.spawn(&mut world, RoomId(b as u32), (0, 0));
             let pos_a = match place_door(&mut rooms[a], id_a, &mut rng) {
                 Some(p) => p,
-                None => continue,
+                None => {
+                    doors.despawn(&mut world, id_a);
+                    doors.despawn(&mut world, id_b);
+                    continue;
+                }
             };
             let pos_b = match place_door(&mut rooms[b], id_b, &mut rng) {
                 Some(p) => p,
                 None => {
-                    // rollback the door placed in room a
                     rooms[a].set(pos_a.0, pos_a.1, TileKind::Wall);
+                    doors.despawn(&mut world, id_a);
+                    doors.despawn(&mut world, id_b);
                     continue;
                 }
             };
-            doors.push(Door {
-                id: id_a,
-                owner: RoomId(a as u32),
-                pos: pos_a,
-                leads_to: id_b,
-            });
-            doors.push(Door {
-                id: id_b,
-                owner: RoomId(b as u32),
-                pos: pos_b,
-                leads_to: id_a,
-            });
+            world.set_position(id_a.0, pos_a);
+            world.set_position(id_b.0, pos_b);
+            doors.link_pair(id_a, id_b);
         }
 
         // Enemy placement runs after the room+door pass so the spawn RNG draw
@@ -127,7 +135,13 @@ impl Dungeon {
             place_room_enemy(room, &mut rng);
         }
 
-        Dungeon { seed, rooms, doors }
+        Dungeon {
+            seed,
+            rooms,
+            world,
+            doors,
+            clock,
+        }
     }
 
     pub fn room(&self, id: RoomId) -> &Room {
@@ -138,8 +152,21 @@ impl Dungeon {
         &mut self.rooms[id.0 as usize]
     }
 
-    pub fn door(&self, id: DoorId) -> &Door {
-        &self.doors[id.0 as usize]
+    /// Read-only snapshot of a door's data. Returns `None` for an unknown id.
+    /// Callers that previously held `&Door` can use the same fields off the
+    /// returned `DoorView`.
+    pub fn door(&self, id: DoorId) -> DoorView {
+        self.doors
+            .view(&self.world, id)
+            .expect("door id refers to a live door entity")
+    }
+
+    pub fn door_view(&self, id: DoorId) -> Option<DoorView> {
+        self.doors.view(&self.world, id)
+    }
+
+    pub fn door_ids(&self) -> impl Iterator<Item = DoorId> + '_ {
+        self.doors.ids()
     }
 }
 
@@ -376,14 +403,11 @@ fn place_room_items(room: &mut Room, rng: &mut Rng) {
     room.items.spawn_at(&mut room.world, pos, kind);
 }
 
-/// Place at most one enemy per non-starting room. Spawn tile is a random
+/// Place exactly one enemy per non-starting room. Spawn tile is a random
 /// floor tile; the enemy kind is uniformly drawn from `ENEMY_KINDS`. The
 /// `&mut Rng` is the seeded one driving the rest of generation, so spawn
 /// placement is fully deterministic.
 fn place_room_enemy(room: &mut Room, rng: &mut Rng) {
-    if !rng.chance(ENEMY_SPAWN_NUM, ENEMY_SPAWN_DEN) {
-        return;
-    }
     let floors: Vec<(usize, usize)> = (0..room.height)
         .flat_map(|y| (0..room.width).map(move |x| (x, y)))
         .filter(|&(x, y)| matches!(room.kind_at(x, y), Some(TileKind::Floor)))
@@ -465,7 +489,8 @@ mod tests {
     #[test]
     fn doors_pair_bidirectionally() {
         let d = Dungeon::generate(99);
-        for door in &d.doors {
+        for id in d.door_ids() {
+            let door = d.door(id);
             let pair = d.door(door.leads_to);
             assert_eq!(pair.leads_to, door.id);
             assert_ne!(pair.owner, door.owner);
@@ -475,7 +500,8 @@ mod tests {
     #[test]
     fn every_door_position_is_a_door_tile() {
         let d = Dungeon::generate(5);
-        for door in &d.doors {
+        for id in d.door_ids() {
+            let door = d.door(id);
             let room = d.room(door.owner);
             assert_eq!(
                 room.kind_at(door.pos.0, door.pos.1),
@@ -519,7 +545,8 @@ mod tests {
     #[test]
     fn each_door_floor_neighbor_exists() {
         let d = Dungeon::generate(7);
-        for door in &d.doors {
+        for id in d.door_ids() {
+            let door = d.door(id);
             let room = d.room(door.owner);
             let inward = step_inward(door.pos, room);
             assert!(matches!(
@@ -614,6 +641,20 @@ mod tests {
                 start.enemies.is_empty(),
                 "starting room had enemies (seed {seed})"
             );
+        }
+    }
+
+    #[test]
+    fn every_non_starting_room_has_at_least_one_enemy() {
+        for seed in 0..16u64 {
+            let d = Dungeon::generate(seed);
+            for room in d.rooms.iter().skip(1) {
+                assert!(
+                    !room.enemies.is_empty(),
+                    "room {:?} (seed {seed}) has no enemies",
+                    room.id
+                );
+            }
         }
     }
 

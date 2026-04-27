@@ -7,6 +7,20 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct EntityId(u32);
 
+impl EntityId {
+    /// Construct an `EntityId` from a raw integer. Real game entities should
+    /// always come from `World::spawn`; this is provided so tests and the
+    /// occasional placeholder (e.g. an invalid sentinel) can build one
+    /// directly without needing a full `World`.
+    pub const fn from_raw(id: u32) -> Self {
+        Self(id)
+    }
+
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
+}
+
 /// Universal positional component. Lives on the `World` itself because almost
 /// any entity that participates in the room grid needs one. Category-specific
 /// data lives in subsystems, not here.

@@ -6,7 +6,7 @@ use std::time::SystemTime;
 
 use crate::game::GameState;
 
-pub const SAVE_VERSION: u32 = 6;
+pub const SAVE_VERSION: u32 = 8;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Save {
@@ -169,9 +169,24 @@ mod tests {
 
     #[test]
     fn round_trip_preserves_state() {
+        use crate::action::dispatch;
+        use crate::actions::MoveAction;
         let mut state = GameState::new_seeded(101);
-        state.move_player(Direction::Right);
-        state.move_player(Direction::Down);
+        let player = state.player.entity();
+        dispatch(
+            &mut state,
+            player,
+            MoveAction {
+                direction: Direction::Right,
+            },
+        );
+        dispatch(
+            &mut state,
+            player,
+            MoveAction {
+                direction: Direction::Down,
+            },
+        );
         let save = Save::new("My Run".into(), state.clone());
         let bytes = save.to_bytes();
         let recovered = Save::from_bytes(&bytes).expect("decode");

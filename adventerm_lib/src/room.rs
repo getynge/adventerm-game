@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::ecs::World;
+use crate::ecs::{EntityId, World};
 use crate::enemies::{Enemies, EnemyKind};
 use crate::items::{ItemKind, ItemSubsystem};
 use crate::lighting::Lighting;
@@ -8,8 +8,11 @@ use crate::lighting::Lighting;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RoomId(pub u32);
 
+/// Stable id for a door. Wraps the underlying door entity in the dungeon
+/// `World`; used inline in `TileKind::Door` so the tile grid can resolve a
+/// door to its subsystem entry without a secondary lookup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct DoorId(pub u32);
+pub struct DoorId(pub EntityId);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TileKind {
@@ -153,7 +156,7 @@ mod tests {
     fn walkable_includes_doors() {
         let mut r = Room::new_filled(RoomId(0), 3, 3, TileKind::Wall);
         r.set(1, 1, TileKind::Floor);
-        r.set(2, 1, TileKind::Door(DoorId(7)));
+        r.set(2, 1, TileKind::Door(DoorId(EntityId::from_raw(7))));
         assert!(r.is_walkable(1, 1));
         assert!(r.is_walkable(2, 1));
         assert!(!r.is_walkable(0, 0));
@@ -162,8 +165,10 @@ mod tests {
     #[test]
     fn find_door_returns_position() {
         let mut r = Room::new_filled(RoomId(0), 4, 4, TileKind::Floor);
-        r.set(3, 2, TileKind::Door(DoorId(9)));
-        assert_eq!(r.find_door(DoorId(9)), Some((3, 2)));
-        assert_eq!(r.find_door(DoorId(0)), None);
+        let nine = DoorId(EntityId::from_raw(9));
+        let zero = DoorId(EntityId::from_raw(0));
+        r.set(3, 2, TileKind::Door(nine));
+        assert_eq!(r.find_door(nine), Some((3, 2)));
+        assert_eq!(r.find_door(zero), None);
     }
 }

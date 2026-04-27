@@ -1,7 +1,9 @@
 use crate::ecs::EntityId;
 use crate::enemies::ai::{enemy_behavior_for, AiAction, AiCtx};
+use crate::event::EventBus;
+use crate::events::{EnemyEngaged, EnemyMoved};
 use crate::rng::Rng;
-use crate::room::Room;
+use crate::room::{Room, RoomId};
 use crate::world::Direction;
 
 /// Result of running one enemy-movement tick. The movement system applies
@@ -13,14 +15,21 @@ pub enum EnemyTickOutcome {
     EncounterTriggered(EntityId),
 }
 
-/// Run one tick of enemy AI. Each enemy decides, the chosen step is applied
+/// Run one tick of enemy AI. Each enemy decides; the chosen step is applied
 /// if the destination is walkable and not occupied by another enemy or by
 /// the player. Iteration order is sorted by `EntityId` so the result is
 /// deterministic given the seeded `Rng`.
+///
+/// `bus` receives one [`EnemyMoved`] per actual position change and one
+/// [`EnemyEngaged`] for the first enemy that ends adjacent to the player.
+/// Other registered handlers may react to those events through the
+/// dispatch pipeline.
 pub fn tick_enemies(
     room: &mut Room,
+    room_id: RoomId,
     player_pos: (usize, usize),
     rng: &mut Rng,
+    bus: &mut EventBus,
 ) -> EnemyTickOutcome {
     let mut entities: Vec<EntityId> = room.enemies.entities().collect();
     entities.sort();
@@ -40,7 +49,6 @@ pub fn tick_enemies(
                 rng,
             };
             enemy_behavior_for(room.enemies.kind_of(entity).unwrap_or_else(|| {
-                // Should never happen: an entity in `enemies` always has a kind.
                 unreachable!("enemy entity without kind")
             }))
             .decide(&mut ctx)
@@ -52,6 +60,12 @@ pub fn tick_enemies(
                 let target = step_pos(pos, dir);
                 if let Some(dest) = step_destination(room, target, player_pos) {
                     room.world.set_position(entity, dest);
+                    bus.emit(EnemyMoved {
+                        entity,
+                        room: room_id,
+                        from: pos,
+                        to: dest,
+                    });
                     dest
                 } else {
                     pos
@@ -61,6 +75,11 @@ pub fn tick_enemies(
 
         if encounter.is_none() && is_adjacent(new_pos, player_pos) {
             encounter = Some(entity);
+            bus.emit(EnemyEngaged {
+                entity,
+                room: room_id,
+                pos: new_pos,
+            });
         }
     }
 

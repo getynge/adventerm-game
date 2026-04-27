@@ -55,7 +55,7 @@ pub fn render(
         InventoryTab::Abilities => {
             render_abilities(frame, game, ability_cursor, body, colors);
         }
-        InventoryTab::Stats => render_stats(frame, &game.stats, game.cur_health, body, colors),
+        InventoryTab::Stats => render_stats(frame, game.stats(), game.cur_health(), body, colors),
     }
 }
 
@@ -87,10 +87,10 @@ fn render_items(
     colors: &MenuColors,
 ) {
     let mut lines: Vec<Line> = Vec::new();
-    if game.inventory.is_empty() {
+    if game.inventory().is_empty() {
         lines.push(Line::from(Span::styled("(empty)", colors.body_style())));
     } else {
-        for (i, kind) in game.inventory.iter().enumerate() {
+        for (i, kind) in game.inventory().iter().enumerate() {
             let marker = if i == cursor { '>' } else { ' ' };
             let style = if i == cursor {
                 colors.cursor_style()
@@ -119,7 +119,7 @@ fn render_abilities(
     area: Rect,
     colors: &MenuColors,
 ) {
-    let abilities = &game.abilities;
+    let abilities = game.abilities();
     let mut lines: Vec<Line> = Vec::new();
 
     lines.push(Line::from(Span::styled(

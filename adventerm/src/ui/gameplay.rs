@@ -41,7 +41,7 @@ fn render_world(frame: &mut Frame, state: &GameState, area: Rect, colors: &Schem
     let view_w = room_w.min(inner.width);
     let view_h = room_h.min(inner.height);
 
-    let (px, py) = state.player;
+    let (px, py) = state.player_pos();
     let off_x = scroll_offset(px as u16, view_w, room_w);
     let off_y = scroll_offset(py as u16, view_h, room_h);
 
@@ -84,7 +84,7 @@ fn pick_glyph(
     if !visible && !explored {
         return (' ', world_bg);
     }
-    if (tx, ty) == state.player {
+    if (tx, ty) == state.player_pos() {
         return ('@', colors.world.player);
     }
     let room = state.current_room();

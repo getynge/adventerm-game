@@ -82,6 +82,18 @@ impl Lighting {
         })
     }
 
+    /// Yield `(position, &FlareSource)` for every active flare in the room.
+    /// Used by event-emitting systems that need to record a per-flare event
+    /// when the room's flares burn out on exit.
+    pub fn iter_flares<'a>(
+        &'a self,
+        world: &'a World,
+    ) -> impl Iterator<Item = ((usize, usize), &'a FlareSource)> + 'a {
+        self.flares.iter().filter_map(move |(e, s)| {
+            world.position_of(e).map(|p| (p, s))
+        })
+    }
+
     fn find_source_at(&self, world: &World, pos: (usize, usize)) -> Option<EntityId> {
         self.sources
             .entities()

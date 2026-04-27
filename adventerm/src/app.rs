@@ -2,8 +2,9 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use adventerm_lib::{
-    battle, save, BattleResult, BattleState, BattleTurn, Direction, GameState, MoveOutcome, Save,
-    SaveSlot,
+    battle, dispatch, save, Battle, BattleResult, BattleTurn, DefeatEnemyAction, Direction,
+    GameState, InteractAction, MoveAction, MoveOutcome, PickUpAction, PlaceItemAction,
+    QuickMoveAction, Save, SaveSlot,
 };
 use crossterm::event::{Event, KeyCode, KeyEventKind};
 
@@ -28,7 +29,7 @@ pub enum Screen {
     Playing(GameState),
     Battle {
         game: GameState,
-        battle: BattleState,
+        battle: Battle,
         cursor: usize,
         status: Status,
     },
@@ -405,27 +406,84 @@ impl App {
         let Screen::Playing(state) = &mut self.screen else {
             return;
         };
+        let player = state.player.entity();
         let outcome: Option<MoveOutcome> = match action {
-            Action::Up => Some(state.move_player(Direction::Up)),
-            Action::Down => Some(state.move_player(Direction::Down)),
-            Action::Left => Some(state.move_player(Direction::Left)),
-            Action::Right => Some(state.move_player(Direction::Right)),
-            Action::QuickUp => Some(state.quick_move(Direction::Up)),
-            Action::QuickDown => Some(state.quick_move(Direction::Down)),
-            Action::QuickLeft => Some(state.quick_move(Direction::Left)),
-            Action::QuickRight => Some(state.quick_move(Direction::Right)),
+            Action::Up => Some(dispatch(
+                state,
+                player,
+                MoveAction {
+                    direction: Direction::Up,
+                },
+            )),
+            Action::Down => Some(dispatch(
+                state,
+                player,
+                MoveAction {
+                    direction: Direction::Down,
+                },
+            )),
+            Action::Left => Some(dispatch(
+                state,
+                player,
+                MoveAction {
+                    direction: Direction::Left,
+                },
+            )),
+            Action::Right => Some(dispatch(
+                state,
+                player,
+                MoveAction {
+                    direction: Direction::Right,
+                },
+            )),
+            Action::QuickUp => Some(dispatch(
+                state,
+                player,
+                QuickMoveAction {
+                    direction: Direction::Up,
+                },
+            )),
+            Action::QuickDown => Some(dispatch(
+                state,
+                player,
+                QuickMoveAction {
+                    direction: Direction::Down,
+                },
+            )),
+            Action::QuickLeft => Some(dispatch(
+                state,
+                player,
+                QuickMoveAction {
+                    direction: Direction::Left,
+                },
+            )),
+            Action::QuickRight => Some(dispatch(
+                state,
+                player,
+                QuickMoveAction {
+                    direction: Direction::Right,
+                },
+            )),
             _ => None,
         };
-        if let Some(MoveOutcome::Encounter(entity)) = outcome {
+        // The action layer surfaces an encounter either as a direct
+        // `MoveOutcome::Encounter` (walking into an enemy tile) or via
+        // the pending-encounter slot (the enemy-tick handler stepped one
+        // adjacent during the bus drain).
+        let encounter = match outcome {
+            Some(MoveOutcome::Encounter(e)) => Some(e),
+            _ => state.take_pending_encounter(),
+        };
+        if let Some(entity) = encounter {
             self.start_battle(entity);
             return;
         }
         match action {
             Action::Confirm => {
                 if state.player_on_door().is_some() {
-                    state.interact();
+                    let _ = dispatch(state, player, InteractAction);
                 } else if state.items_here() {
-                    state.pick_up_here();
+                    let _ = dispatch(state, player, PickUpAction);
                 }
             }
             Action::Inventory => {
@@ -463,8 +521,8 @@ impl App {
         let Screen::Playing(game) = std::mem::replace(&mut self.screen, Screen::Quit) else {
             return;
         };
-        let battle_state = match battle::start_battle(&game, entity) {
-            Some(s) => s,
+        let battle = match battle::start_battle(&game, entity) {
+            Some(b) => b,
             None => {
                 // Enemy went away between move and start (shouldn't happen);
                 // bail back to play.
@@ -474,7 +532,7 @@ impl App {
         };
         self.screen = Screen::Battle {
             game,
-            battle: battle_state,
+            battle,
             cursor: 0,
             status: Status::None,
         };
@@ -483,7 +541,7 @@ impl App {
     fn handle_battle(&mut self, action: Action) {
         let Screen::Battle {
             game,
-            battle: state,
+            battle,
             cursor,
             status,
         } = &mut self.screen
@@ -492,14 +550,14 @@ impl App {
         };
 
         // Resolved → any keypress returns to gameplay (or main menu on defeat).
-        if let Some(result) = state.result() {
+        if let Some(result) = battle.result() {
             if matches!(action, Action::Confirm | Action::Escape) {
                 self.finish_battle(result);
             }
             return;
         }
 
-        match state.turn {
+        match battle.turn() {
             BattleTurn::Player => match action {
                 Action::Up => {
                     if *cursor > 0 {
@@ -507,14 +565,14 @@ impl App {
                     }
                 }
                 Action::Down => {
-                    let slots = game.abilities.active_slots.len();
+                    let slots = game.abilities().active_slots.len();
                     if *cursor + 1 < slots {
                         *cursor += 1;
                     }
                 }
                 Action::Confirm => {
                     let slot = *cursor;
-                    match battle::apply_player_ability(game, state, slot) {
+                    match battle::apply_player_ability(game, battle, slot) {
                         Ok(()) => *status = Status::None,
                         Err(_) => {
                             *status = Status::Error("That slot is empty.".into());
@@ -522,13 +580,13 @@ impl App {
                     }
                 }
                 Action::Escape => {
-                    state.turn = BattleTurn::Resolved(BattleResult::Fled);
+                    battle.set_turn(BattleTurn::Resolved(BattleResult::Fled));
                 }
                 _ => {}
             },
             BattleTurn::Enemy => {
                 if matches!(action, Action::Confirm | Action::Up | Action::Down | Action::Escape) {
-                    battle::apply_enemy_turn(game, state);
+                    battle::apply_enemy_turn(game, battle);
                 }
             }
             BattleTurn::Resolved(_) => {}
@@ -548,12 +606,20 @@ impl App {
         };
         match result {
             BattleResult::Victory => {
-                game.cur_health = battle.player_cur_hp;
-                game.defeat_enemy(battle.enemy_room, battle.enemy_id);
+                game.set_cur_health(battle.player_cur_hp());
+                let player = game.player.entity();
+                dispatch(
+                    &mut game,
+                    player,
+                    DefeatEnemyAction {
+                        room: battle.enemy_room(),
+                        entity: battle.enemy_id(),
+                    },
+                );
                 self.screen = Screen::Playing(game);
             }
             BattleResult::Fled => {
-                game.cur_health = battle.player_cur_hp;
+                game.set_cur_health(battle.player_cur_hp());
                 self.screen = Screen::Playing(game);
             }
             BattleResult::Defeat => {
@@ -592,7 +658,7 @@ impl App {
                 }
             }
             (Action::Down, InventoryTab::Items) => {
-                let len = game.inventory.len();
+                let len = game.inventory().len();
                 if *item_cursor + 1 < len {
                     *item_cursor += 1;
                 }
@@ -603,18 +669,19 @@ impl App {
                 }
             }
             (Action::Down, InventoryTab::Abilities) => {
-                let slots = game.abilities.active_slots.len();
+                let slots = game.abilities().active_slots.len();
                 if *ability_cursor + 1 < slots {
                     *ability_cursor += 1;
                 }
             }
             (Action::Confirm, InventoryTab::Items) => {
-                let len = game.inventory.len();
+                let len = game.inventory().len();
                 if len == 0 {
                     return;
                 }
                 let slot = (*item_cursor).min(len - 1);
-                let _ = game.place_item(slot);
+                let player = game.player.entity();
+                let _ = dispatch(game, player, PlaceItemAction { slot });
                 let Screen::Inventory { game, .. } =
                     std::mem::replace(&mut self.screen, Screen::Quit)
                 else {

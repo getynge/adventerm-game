@@ -173,7 +173,11 @@ mod tests {
     #[test]
     fn doors_do_not_block_line_of_sight() {
         let mut room = open_room(15, 15);
-        room.set(5, 6, TileKind::Door(crate::room::DoorId(0)));
+        room.set(
+            5,
+            6,
+            TileKind::Door(crate::room::DoorId(crate::ecs::EntityId::from_raw(0))),
+        );
         let v = vis(&room, (5, 5));
         assert!(v[room.idx(5, 6)]);
         assert!(v[room.idx(5, 7)]);

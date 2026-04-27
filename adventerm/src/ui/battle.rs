@@ -1,4 +1,4 @@
-use adventerm_lib::{BattleState, BattleTurn, GameState};
+use adventerm_lib::{Battle, BattleTurn, GameState};
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::Style;
@@ -19,7 +19,7 @@ const ACTIONS_HEIGHT: u16 = 8;
 pub fn render(
     frame: &mut Frame,
     game: &GameState,
-    battle: &BattleState,
+    battle: &Battle,
     cursor: usize,
     status: Option<&str>,
     colors: &SchemeColors,
@@ -48,19 +48,19 @@ pub fn render(
 fn render_header(
     frame: &mut Frame,
     game: &GameState,
-    battle: &BattleState,
+    battle: &Battle,
     area: Rect,
     colors: &MenuColors,
 ) {
     let enemy_kind = game
         .dungeon
-        .room(battle.enemy_room)
+        .room(battle.enemy_room())
         .enemies
-        .kind_of(battle.enemy_id);
+        .kind_of(battle.enemy_id());
     let enemy_name = enemy_kind.map(|k| k.name()).unwrap_or("Foe");
     let enemy_max = enemy_kind
         .map(|k| k.base_stats().health)
-        .unwrap_or(battle.enemy_cur_hp);
+        .unwrap_or(battle.enemy_cur_hp());
 
     let lines = vec![
         Line::from(Span::styled(
@@ -68,13 +68,13 @@ fn render_header(
             colors.title_style(),
         )),
         Line::from(hp_spans(
-            battle.player_cur_hp,
-            game.stats.health,
+            battle.player_cur_hp(),
+            game.stats().health,
             colors,
         )),
         Line::from(""),
         Line::from(Span::styled(enemy_name.to_string(), colors.title_style())),
-        Line::from(hp_spans(battle.enemy_cur_hp, enemy_max, colors)),
+        Line::from(hp_spans(battle.enemy_cur_hp(), enemy_max, colors)),
     ];
     frame.render_widget(
         Paragraph::new(lines).style(colors.body_style()),
@@ -100,13 +100,13 @@ fn hp_spans(cur: u8, max: u8, colors: &MenuColors) -> Vec<Span<'static>> {
 fn render_actions(
     frame: &mut Frame,
     game: &GameState,
-    battle: &BattleState,
+    battle: &Battle,
     cursor: usize,
     area: Rect,
     colors: &MenuColors,
 ) {
     let mut lines: Vec<Line> = Vec::new();
-    let header = match battle.turn {
+    let header = match battle.turn() {
         BattleTurn::Player => "Your turn — pick an ability:",
         BattleTurn::Enemy => "Foe's turn...",
         BattleTurn::Resolved(_) => "Battle resolved.",
@@ -115,8 +115,8 @@ fn render_actions(
         header.to_string(),
         colors.title_style(),
     )));
-    let player_turn = battle.turn == BattleTurn::Player;
-    for (i, slot) in game.abilities.active_iter().enumerate() {
+    let player_turn = battle.turn() == BattleTurn::Player;
+    for (i, slot) in game.abilities().active_iter().enumerate() {
         let label = match slot {
             Some(kind) => kind.name().to_string(),
             None => "(empty)".to_string(),
@@ -140,13 +140,13 @@ fn render_actions(
 
 fn render_log(
     frame: &mut Frame,
-    battle: &BattleState,
+    battle: &Battle,
     status: Option<&str>,
     area: Rect,
     colors: &MenuColors,
 ) {
     let mut lines: Vec<Line> = battle
-        .log
+        .log()
         .iter()
         .map(|s| Line::from(Span::styled(s.clone(), colors.body_style())))
         .collect();
@@ -157,7 +157,7 @@ fn render_log(
         )));
     }
     lines.push(Line::from(""));
-    let hint = match battle.turn {
+    let hint = match battle.turn() {
         BattleTurn::Player => "Up/Down: choose    Enter: use    Esc: flee",
         BattleTurn::Enemy => "Enter: continue",
         BattleTurn::Resolved(_) => "Enter: continue",
