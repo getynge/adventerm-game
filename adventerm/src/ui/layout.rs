@@ -45,6 +45,15 @@ pub const MAIN_MENU_OPTIONS_WIDTH: u16 = 14;
 /// Height used by status/confirm popups (top border + content + bottom border).
 pub const STATUS_POPUP_HEIGHT: u16 = 3;
 
+/// Developer-console popup geometry. The console takes most of the frame
+/// to give the log pane room; the input row sits at the bottom.
+pub const CONSOLE_HORIZONTAL_MARGIN: u16 = 2;
+pub const CONSOLE_VERTICAL_MARGIN: u16 = 2;
+pub const CONSOLE_MIN_WIDTH: u16 = 40;
+pub const CONSOLE_MIN_HEIGHT: u16 = 8;
+/// Number of input/footer rows reserved at the bottom of the console.
+pub const CONSOLE_INPUT_ROWS: u16 = 2;
+
 pub fn popup_rect(area: Rect, width: u16, height: u16) -> Rect {
     let [_, row, _] = Layout::vertical([
         Constraint::Fill(1),

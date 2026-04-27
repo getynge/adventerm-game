@@ -1,5 +1,6 @@
 mod app;
 mod config;
+mod console;
 mod dump;
 mod input;
 mod menu;
@@ -19,6 +20,7 @@ const DUMP_USAGE: &str = "usage: adventerm --dump-rooms <count> <path> [--seed <
 
 fn main() -> color_eyre::Result<()> {
     color_eyre::install()?;
+    console::log_sink::init();
     let argv: Vec<String> = std::env::args().collect();
     if let Some((seed, count, path)) = parse_dump_args(&argv) {
         dump::run(seed, count, &path)?;

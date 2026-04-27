@@ -57,10 +57,14 @@ pub fn register(reg: &mut Registry) {
 /// merge them into the persistent explored memory. Used by the handler
 /// above and called directly during `new_seeded` and post-deserialize
 /// rehydration, where dispatch is not running.
+///
+/// Honors `GameState::fullbright`: when on, every tile of the room is
+/// flipped visible and lit, and the room's explored map is fully marked.
 pub fn refresh_visibility(game: &mut GameState) {
     let room_id = game.current_room;
     let player_pos = game.player.position();
     let radius = game.player.vision_radius();
+    let fullbright = game.fullbright();
     let room = game.dungeon.room(room_id);
     let len = room.width * room.height;
 
@@ -72,6 +76,15 @@ pub fn refresh_visibility(game: &mut GameState) {
         &mut cache.visible,
         &mut cache.lit,
     );
+
+    if fullbright {
+        for v in cache.visible.iter_mut() {
+            *v = true;
+        }
+        for v in cache.lit.iter_mut() {
+            *v = true;
+        }
+    }
 
     let visible = cache.visible.clone();
     let lit = cache.lit.clone();
@@ -97,6 +110,32 @@ mod tests {
         assert!(
             widened > baseline,
             "goggles should reveal more tiles (baseline={baseline}, widened={widened})"
+        );
+    }
+
+    #[test]
+    fn fullbright_marks_every_tile_visible_and_lit() {
+        let mut game = GameState::new_seeded(11);
+        refresh_visibility(&mut game);
+        let room = game.current_room();
+        let total = room.width * room.height;
+
+        game.set_fullbright(true);
+        refresh_visibility(&mut game);
+        assert_eq!(
+            game.player.visibility().visible.iter().filter(|v| **v).count(),
+            total
+        );
+        assert_eq!(
+            game.player.visibility().lit.iter().filter(|v| **v).count(),
+            total
+        );
+
+        game.set_fullbright(false);
+        refresh_visibility(&mut game);
+        assert!(
+            game.player.visibility().visible.iter().filter(|v| **v).count() < total,
+            "disabling fullbright should restore LOS-bounded visibility"
         );
     }
 }

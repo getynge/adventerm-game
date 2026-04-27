@@ -9,6 +9,8 @@ use std::collections::{HashMap, VecDeque};
 
 use crate::ecs::World;
 use crate::enemies::EnemyKind;
+use crate::items::random::random_item_kind;
+#[cfg(test)]
 use crate::items::ItemKind;
 use crate::rng::Rng;
 use crate::room::{DoorId, Room, RoomId, TileKind};
@@ -37,21 +39,6 @@ const WALL_LIGHT_COUNT_MAX_EXCL: usize = 4;
 /// Per-room probability of spawning a ground item.
 const GROUND_ITEM_CHANCE_NUM: u32 = 1;
 const GROUND_ITEM_CHANCE_DEN: u32 = 2;
-
-/// Weighted distribution used when a ground-item draw fires. Torches stay
-/// the most common find; equipment fills the middle band; flares and the
-/// Scroll of Fire are intentionally rare. Adding a new variant: append a
-/// `(kind, weight)` row — the weighted-pick helper handles the rest.
-const ITEM_WEIGHTS: &[(ItemKind, u32)] = &[
-    (ItemKind::Torch, 30),
-    (ItemKind::Flare, 4),
-    (ItemKind::Shirt, 10),
-    (ItemKind::Gauntlets, 10),
-    (ItemKind::Trousers, 10),
-    (ItemKind::Boots, 10),
-    (ItemKind::Goggles, 6),
-    (ItemKind::ScrollOfFire, 2),
-];
 
 /// Available enemy kinds. Adding a new variant to `EnemyKind` is enough to
 /// pull it into the spawn pool.
@@ -406,24 +393,8 @@ fn place_room_items(room: &mut Room, rng: &mut Rng) {
         return;
     }
     let pos = floors[rng.range(0, floors.len())];
-    let kind = weighted_pick(rng, ITEM_WEIGHTS);
+    let kind = random_item_kind(rng);
     room.items.spawn_at(&mut room.world, pos, kind);
-}
-
-/// Walk a `(value, weight)` table and pick a value with probability
-/// proportional to its weight. Panics on an empty / all-zero table —
-/// callers maintain `ITEM_WEIGHTS` and that's a load-bearing invariant.
-fn weighted_pick<T: Copy>(rng: &mut Rng, weights: &[(T, u32)]) -> T {
-    let total: u32 = weights.iter().map(|(_, w)| *w).sum();
-    assert!(total > 0, "weighted_pick called with empty/zero table");
-    let mut roll = rng.range(0, total as usize) as u32;
-    for (value, w) in weights {
-        if roll < *w {
-            return *value;
-        }
-        roll -= *w;
-    }
-    weights.last().expect("non-empty checked above").0
 }
 
 /// Place exactly one enemy per non-starting room. Spawn tile is a random

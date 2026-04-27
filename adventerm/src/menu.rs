@@ -116,21 +116,36 @@ impl PauseMenuOption {
 pub enum OptionsRow {
     ColorScheme,
     Keybind(BoundAction),
+    Advanced,
     ResetDefaults,
     Back,
 }
 
 impl OptionsRow {
     pub fn all() -> Vec<OptionsRow> {
-        let mut v: Vec<OptionsRow> = Vec::with_capacity(BoundAction::ALL.len() + 3);
+        let mut v: Vec<OptionsRow> = Vec::with_capacity(BoundAction::ALL.len() + 4);
         v.push(OptionsRow::ColorScheme);
         for a in BoundAction::ALL {
             v.push(OptionsRow::Keybind(a));
         }
+        v.push(OptionsRow::Advanced);
         v.push(OptionsRow::ResetDefaults);
         v.push(OptionsRow::Back);
         v
     }
+}
+
+/// Rows on the Options → Advanced sub-screen. Today only the dev-console
+/// toggle plus a Back row; future advanced toggles slot in alongside.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OptionsAdvancedRow {
+    DevConsole,
+    Back,
+}
+
+impl OptionsAdvancedRow {
+    pub const ALL: [OptionsAdvancedRow; 2] =
+        [OptionsAdvancedRow::DevConsole, OptionsAdvancedRow::Back];
 }
 
 /// A list of options the user can navigate with up/down and select with enter

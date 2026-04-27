@@ -36,7 +36,7 @@ Per-room subsystem types (`Lighting`, `ItemSubsystem`, `Enemies`, `Abilities`) a
 
 ### [game.rs](../adventerm_lib/src/game.rs) — gameplay container
 
-- `GameState { dungeon, current_room, player, explored }`. Constructed via `GameState::new_seeded(seed)`.
+- `GameState { dungeon, current_room, player, explored, pending_encounter, fullbright }`. Constructed via `GameState::new_seeded(seed)`. `fullbright` is a transient `#[serde(skip)]` debug override exposed to the dev console; getter `fullbright()` / setter `set_fullbright(bool)` go on `GameState`. `systems::refresh_visibility` checks the flag and short-circuits to "every tile visible + lit" when on.
 - `MoveOutcome::{Blocked, Moved, Encounter(EntityId)}`.
 - `DoorEvent { from, to, new_room }` — door transition record returned by `interact`.
 - `PlaceOutcome` — re-exported from `items::PlaceOutcome`.
@@ -72,8 +72,9 @@ Each module exposes free functions taking `&mut GameState` (or a narrower borrow
 - `interact.rs` — `interact_door(game) -> Option<DoorEvent>`. Burns out flares in the leaving room (one `FlareBurnedOut` event per converted flare) and emits `DoorTraversed` for the trip.
 - `pickup.rs` — `peek_item_here`, `pick_up_here`, `place_item`. Emit `ItemPickedUp` / `ItemPlaced`.
 - `combat.rs` — `defeat_enemy(game, room, entity)`. Despawns the enemy and emits `EnemyDefeated`.
-- `visibility.rs` — `refresh_visibility(game)`. Wraps `visibility::compute_room_lighting` and ORs the result into explored memory.
+- `visibility.rs` — `refresh_visibility(game)`. Wraps `visibility::compute_room_lighting` and ORs the result into explored memory. Also honors `GameState::fullbright`: when on, marks every tile of the current room visible+lit.
 - `enemy_tick.rs` — `tick_current_room(game) -> Option<EntityId>`. Lazily rehydrates the enemy RNG (seed XOR `ENEMY_RNG_SALT`), runs `enemies::tick_enemies`, and threads the dungeon `TickLog` so per-enemy `EnemyMoved`/`EnemyEngaged` events are recorded.
+- `dev.rs` — developer-mode mutators reachable only from the dev console. `spawn_item_at_player(game, kind) -> EntityId` drops a ground-item entity on the player's tile; `spawn_enemy_near_player(game, kind) -> Option<EntityId>` finds the first walkable, enemy-free 4/8-neighbor floor and spawns there (None if surrounded). Both go through the same per-room subsystems gameplay uses, so invariants stay enforced.
 
 ### [events.rs](../adventerm_lib/src/events.rs) — dungeon event log
 
@@ -110,6 +111,8 @@ Cross-cutting consumers (renderers, tests, achievements, replays) read the log i
 - `storage.rs`: `ItemSubsystem` — per-room ground-item storage (`ComponentStore<ItemKind>`). `spawn_at`, `take_at`, `iter_at`, `iter_at_any`, `any_at`, `positions`.
 - `behavior.rs`: `ItemBehavior` trait + `PlaceCtx`, `ConsumeCtx`, `EquipEffect`, `ConsumeIntent`, `ConsumeTarget`, `ConsumeOutcome` + `behavior_for(kind) -> &'static dyn ItemBehavior` and `equip_slot_of(kind) -> Option<EquipSlot>`. The single point that enumerates kinds. Trait methods (all defaulted except `category`): `category()`, `on_place()`, `equip_effect()`, `consume_intent()`, `on_consume()`. `PlaceOutcome` and `ConsumeOutcome` are `Serialize/Deserialize` so they can ride inside `events::ItemPlaced` / `events::ItemConsumed`.
 - `torch.rs`, `flare.rs`, `goggles.rs`, `shirt.rs`, `gauntlets.rs`, `trousers.rs`, `boots.rs`, `scroll_of_fire.rs`: per-kind `ItemBehavior` impls (zero-sized types). Equipment modules override `equip_effect`; the scroll overrides `consume_intent` (returns `PickAbilitySlot`) and `on_consume`.
+- `random.rs`: `random_item_kind(rng) -> ItemKind` — weighted pick using the same `ITEM_WEIGHTS` table dungeon generation uses. Reused by the dev-console `spawn item` (no-arg) command so manual spawns match the live distribution.
+- `kind.rs`: also exposes `ItemKind::ALL` (slice of every variant) and `ItemKind::from_display_name(name) -> Option<ItemKind>` (case-insensitive reverse lookup against `name()`). Used by the dev console; do not match on `ItemKind` outside `behavior_for` / `from_display_name`.
 
 ### [equipment/](../adventerm_lib/src/equipment/) — worn items
 
@@ -211,6 +214,18 @@ Functions: `Save::new`, `Save::to_bytes`, `Save::from_bytes` (validates version,
   - `BattleTurn::{Player, Enemy, Resolved(BattleResult)}`, `BattleResult::{Victory, Defeat, Fled}`, `BATTLE_LOG_LINES = 8`.
   - `Combatants { enemy_entity, enemy_room }`, `HpSnapshot { player, enemy }`, `BattleLog { lines }`.
 - `engine.rs`: `start_battle(game, enemy_id) -> Option<Battle>`, `apply_player_ability(game, battle, slot)`, `apply_enemy_turn(game, battle)`. Player turns dispatch through `ability_behavior_for`; enemy turns currently use a stat-based basic attack with a 1-damage floor. The `Battle` is owned by `Screen::Battle` in the binary and dropped on resolve — battles are not serialized (matches the existing "no save mid-battle" rule).
+
+### [console/](../adventerm_lib/src/console/) — developer console runtime
+
+The typed-command runtime for the in-game developer console lives here so adding/extending commands is a pure-gameplay change. The TUI binary owns only the log sink (the global `log::Log` impl) and the popup renderer.
+
+- `state.rs`: `ConsoleState` — input buffer, cursor, history, cached `Completion`. Methods (`insert_char`, `backspace`, `tab`, `history_up`/`down`, `submit`) take ordinary primitives + `&GameState`/`&mut GameState`, so the binary just translates key events into method calls. `submit` tokenizes, looks up the command, and funnels both success and failure messages through `log::info!`/`log::error!` (target `"dev_console"`).
+- `parse.rs`: `tokenize(input) -> Vec<Token>` with `"…"` quoted-string support; `analyze(input) -> InputPosition` distinguishes mid-token vs. boundary; `quote_if_needed(s)` re-wraps multi-word completions for round-trip.
+- `command.rs`: `DevCommand` trait (`name`, optional `help`, `arg_completions`, `execute`); `DevCtx { game: Option<&mut GameState> }`; `CompletionCtx { game: Option<&GameState> }`. Module-scope `static FULLBRIGHT/SPAWN/GIVE` ZSTs and `const REGISTRY: &[&'static dyn DevCommand]`. Public entry points: `registry()`, `find(name)`. Adding a command = drop a file under [commands/](../adventerm_lib/src/console/commands/) with `impl DevCommand` and add one `&NAME` entry to `REGISTRY`. Never match on `ItemKind`/`EnemyKind` outside the existing `*_display_name`/`behavior_for` registries.
+- `complete.rs`: `Completion::from_input(input, game)` returns the candidate list and ghost-text suffix. `accept_into(input, cycle_index)` extends the input toward the longest common prefix, wraps multi-word completions in quotes, and cycles when the prefix is ambiguous. Same registry the executor uses, so command names and arg completions never drift.
+- `commands/`: the three initial commands. `fullbright` toggles `GameState::set_fullbright` + `refresh_visibility`. `give <name>` parses via `ItemKind::from_display_name` and pushes onto the player's inventory. `spawn <item|enemy> [name]` calls into `systems::dev`; `spawn item` with no name reuses `items::random::random_item_kind(player.enemy_rng)` so manual spawns match the live distribution. Argument completion uses `ItemKind::ALL` and the lowercase-`name()` form.
+
+The library only depends on the `log` *facade* (no logger install) — command output and input echoes go through `log::{info,error}!`, which the binary's `log_sink::ConsoleLogger` captures into the global ring buffer the renderer reads.
 
 ### [rng.rs](../adventerm_lib/src/rng.rs) — seeded PRNG
 

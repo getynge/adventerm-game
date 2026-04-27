@@ -12,6 +12,7 @@
 //! during `GameState::new_seeded` and post-deserialize rehydration where
 //! dispatch is not running.
 
+pub mod dev;
 pub mod enemy_tick;
 pub mod visibility;
 

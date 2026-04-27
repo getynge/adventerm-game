@@ -39,8 +39,10 @@ Defined as the [`Screen`](../adventerm/src/app.rs) enum. Variants and the `GameS
 | `Paused` | yes (retained) | Overlay on Playing; offers Resume / Save / Quit |
 | `SaveSlotPicker` | yes | Pick existing slot to overwrite, or "+ New save..." |
 | `NameEntry` | yes | Text buffer (≤32 chars) for new save name |
-| `Options` | no | Color scheme + 7 keybinds + Reset / Back |
+| `Options` | no | Color scheme + 7 keybinds + Advanced... + Reset / Back |
+| `OptionsAdvanced` | no | Boolean toggles (currently: Developer Console on/off) |
 | `RebindCapture` | no | Modal awaiting next raw key press |
+| `DeveloperConsole` | inherits | Overlay screen wrapping any other variant via `Box<Screen>`. Owns a `ConsoleState` (input buffer, history, completion). The wrapped screen renders underneath; commands like `give`/`spawn`/`fullbright` reach through `Screen::game_mut`. Toggled with backtick when `Config::dev_console_enabled()` is true. |
 | `Quit` | — | Sentinel; main loop exits |
 
 Transitions are pattern-matched in `App::handle_*` methods per screen. Triggers:

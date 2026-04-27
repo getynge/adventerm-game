@@ -2,6 +2,7 @@ pub mod abilities;
 pub mod action;
 pub mod actions;
 pub mod battle;
+pub mod console;
 pub mod dungeon;
 pub mod ecs;
 pub mod enemies;

@@ -10,10 +10,11 @@ use adventerm_lib::{
 use crossterm::event::{Event, KeyCode, KeyEventKind};
 
 use crate::config::{self, BoundAction, ColorScheme, Config, Key, SchemeRegistry};
-use crate::input::{Action, TextInputAction};
+use crate::console::ConsoleState;
+use crate::input::{Action, ConsoleInputAction, TextInputAction};
 use crate::menu::{
-    InventoryTab, ItemsFocus, MainMenuOption, MenuState, OptionsRow, PauseMenuOption,
-    PendingConsume, PendingIntent, SaveBrowser, Status,
+    InventoryTab, ItemsFocus, MainMenuOption, MenuState, OptionsAdvancedRow, OptionsRow,
+    PauseMenuOption, PendingConsume, PendingIntent, SaveBrowser, Status,
 };
 
 const MAX_SAVE_NAME_CHARS: usize = 32;
@@ -68,12 +69,54 @@ pub enum Screen {
         menu: MenuState<OptionsRow>,
         status: Status,
     },
+    OptionsAdvanced {
+        menu: MenuState<OptionsAdvancedRow>,
+        status: Status,
+    },
     RebindCapture {
         menu: MenuState<OptionsRow>,
         status: Status,
         target: BoundAction,
     },
+    /// Developer-console overlay. Wraps whichever screen was active when
+    /// the user pressed backtick; closing the console restores the
+    /// underlying screen exactly as it was.
+    DeveloperConsole {
+        underlying: Box<Screen>,
+        console: ConsoleState,
+    },
     Quit,
+}
+
+impl Screen {
+    /// Borrow the active `GameState` if the screen carries one. The
+    /// developer console uses this to route commands like `give` and
+    /// `spawn` to whatever gameplay screen is underneath the overlay.
+    pub fn game_mut(&mut self) -> Option<&mut GameState> {
+        match self {
+            Screen::Playing(game)
+            | Screen::Battle { game, .. }
+            | Screen::Inventory { game, .. }
+            | Screen::Paused { game, .. }
+            | Screen::SaveSlotPicker { game, .. }
+            | Screen::NameEntry { game, .. } => Some(game),
+            Screen::DeveloperConsole { underlying, .. } => underlying.game_mut(),
+            _ => None,
+        }
+    }
+
+    pub fn game(&self) -> Option<&GameState> {
+        match self {
+            Screen::Playing(game)
+            | Screen::Battle { game, .. }
+            | Screen::Inventory { game, .. }
+            | Screen::Paused { game, .. }
+            | Screen::SaveSlotPicker { game, .. }
+            | Screen::NameEntry { game, .. } => Some(game),
+            Screen::DeveloperConsole { underlying, .. } => underlying.game(),
+            _ => None,
+        }
+    }
 }
 
 pub struct App {
@@ -126,6 +169,15 @@ impl App {
     }
 
     pub fn handle_event(&mut self, event: &Event) {
+        // The developer console is its own input mode: it consumes every
+        // keystroke (including a second backtick to close) and never falls
+        // through to the underlying screen.
+        if let Screen::DeveloperConsole { .. } = self.screen {
+            if let Some(action) = crate::input::translate_console(event) {
+                self.handle_developer_console(action);
+            }
+            return;
+        }
         if let Screen::NameEntry { .. } = self.screen {
             if let Some(action) = crate::input::translate_text(event) {
                 self.handle_name_entry(action);
@@ -142,9 +194,16 @@ impl App {
             self.handle_rebind_capture(event);
             return;
         }
-        let Some(action) = crate::input::translate(event, &self.config.keybinds) else {
+        let console_enabled = self.config.dev_console_enabled();
+        let Some(action) =
+            crate::input::translate(event, &self.config.keybinds, console_enabled)
+        else {
             return;
         };
+        if matches!(action, Action::ToggleConsole) {
+            self.open_developer_console();
+            return;
+        }
         match &self.screen {
             Screen::MainMenu { .. } => self.handle_main_menu(action),
             Screen::LoadGame { .. } => self.handle_load_game(action),
@@ -154,10 +213,59 @@ impl App {
             Screen::Paused { .. } => self.handle_pause_menu(action),
             Screen::SaveSlotPicker { .. } => self.handle_slot_picker(action),
             Screen::Options { .. } => self.handle_options(action),
+            Screen::OptionsAdvanced { .. } => self.handle_options_advanced(action),
             Screen::NameEntry { .. }
             | Screen::SeedEntry { .. }
             | Screen::RebindCapture { .. }
+            | Screen::DeveloperConsole { .. }
             | Screen::Quit => {}
+        }
+    }
+
+    fn open_developer_console(&mut self) {
+        let prev = std::mem::replace(&mut self.screen, Screen::Quit);
+        let mut console = ConsoleState::new();
+        console.refresh_completion(prev.game());
+        self.screen = Screen::DeveloperConsole {
+            underlying: Box::new(prev),
+            console,
+        };
+    }
+
+    fn close_developer_console(&mut self) {
+        let prev = std::mem::replace(&mut self.screen, Screen::Quit);
+        let Screen::DeveloperConsole { underlying, .. } = prev else {
+            // Should be unreachable — caller checks the variant first.
+            self.screen = prev;
+            return;
+        };
+        self.screen = *underlying;
+        // A fullbright toggle while the console was open changes what the
+        // renderer shows; force a refresh so the next frame reflects it.
+        if let Some(game) = self.screen.game_mut() {
+            game.refresh_visibility();
+        }
+    }
+
+    fn handle_developer_console(&mut self, action: ConsoleInputAction) {
+        match action {
+            ConsoleInputAction::Toggle | ConsoleInputAction::Cancel => {
+                self.close_developer_console();
+                return;
+            }
+            _ => {}
+        }
+        let Screen::DeveloperConsole { underlying, console } = &mut self.screen else {
+            return;
+        };
+        match action {
+            ConsoleInputAction::Char(c) => console.insert_char(c, underlying.game()),
+            ConsoleInputAction::Backspace => console.backspace(underlying.game()),
+            ConsoleInputAction::Tab => console.tab(underlying.game()),
+            ConsoleInputAction::HistoryUp => console.history_up(),
+            ConsoleInputAction::HistoryDown => console.history_down(),
+            ConsoleInputAction::Submit => console.submit(underlying.game_mut()),
+            ConsoleInputAction::Toggle | ConsoleInputAction::Cancel => unreachable!(),
         }
     }
 
@@ -339,6 +447,12 @@ impl App {
                     target: action,
                 };
             }
+            OptionsRow::Advanced => {
+                self.screen = Screen::OptionsAdvanced {
+                    menu: MenuState::new(OptionsAdvancedRow::ALL.to_vec()),
+                    status: Status::None,
+                };
+            }
             OptionsRow::ResetDefaults => {
                 self.config = Config::default();
                 self.persist_config();
@@ -347,6 +461,55 @@ impl App {
                 }
             }
             OptionsRow::Back => self.return_to_main_menu(Status::None),
+        }
+    }
+
+    fn handle_options_advanced(&mut self, action: Action) {
+        let chosen: Option<OptionsAdvancedRow> = {
+            let Screen::OptionsAdvanced { menu, .. } = &mut self.screen else {
+                return;
+            };
+            match action {
+                Action::Up => {
+                    menu.up();
+                    None
+                }
+                Action::Down => {
+                    menu.down();
+                    None
+                }
+                Action::Confirm => menu.current(),
+                Action::Escape => Some(OptionsAdvancedRow::Back),
+                Action::Hotkey(c) => {
+                    let labels: Vec<String> = menu
+                        .options()
+                        .iter()
+                        .map(|r| options_advanced_row_label(&self.config, *r))
+                        .collect();
+                    let label_refs: Vec<&str> = labels.iter().map(String::as_str).collect();
+                    menu.select_hotkey(c, &label_refs)
+                }
+                _ => None,
+            }
+        };
+        if let Some(row) = chosen {
+            self.activate_options_advanced_row(row);
+        }
+    }
+
+    fn activate_options_advanced_row(&mut self, row: OptionsAdvancedRow) {
+        match row {
+            OptionsAdvancedRow::DevConsole => {
+                let new_state = !self.config.dev_console_enabled();
+                self.config.set_dev_console_enabled(new_state);
+                self.persist_config();
+            }
+            OptionsAdvancedRow::Back => {
+                self.screen = Screen::Options {
+                    menu: MenuState::new(OptionsRow::all()),
+                    status: Status::None,
+                };
+            }
         }
     }
 
@@ -402,6 +565,7 @@ impl App {
             | Screen::NameEntry { status, .. }
             | Screen::SeedEntry { status, .. }
             | Screen::Options { status, .. }
+            | Screen::OptionsAdvanced { status, .. }
             | Screen::RebindCapture { status, .. } => *status = new_status,
             _ => {}
         }
@@ -1147,7 +1311,18 @@ pub fn options_row_label(config: &Config, row: OptionsRow) -> String {
             };
             format!("{}: {}", action.label(), joined)
         }
+        OptionsRow::Advanced => "Advanced...".to_string(),
         OptionsRow::ResetDefaults => "Reset Defaults".to_string(),
         OptionsRow::Back => "Back".to_string(),
+    }
+}
+
+pub fn options_advanced_row_label(config: &Config, row: OptionsAdvancedRow) -> String {
+    match row {
+        OptionsAdvancedRow::DevConsole => format!(
+            "Developer Console: {}",
+            if config.dev_console_enabled() { "On" } else { "Off" }
+        ),
+        OptionsAdvancedRow::Back => "Back".to_string(),
     }
 }

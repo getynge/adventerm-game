@@ -25,6 +25,7 @@ dependencies = [
  "color-eyre",
  "crossterm",
  "directories",
+ "log",
  "ratatui",
  "serde",
  "serde_json",
@@ -34,6 +35,7 @@ dependencies = [
 name = "adventerm_lib"
 version = "0.1.0"
 dependencies = [
+ "log",
  "serde",
  "serde_json",
 ]

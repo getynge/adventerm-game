@@ -5,6 +5,7 @@ pub mod flare;
 pub mod gauntlets;
 pub mod goggles;
 pub mod kind;
+pub mod random;
 pub mod scroll_of_fire;
 pub mod shirt;
 pub mod storage;

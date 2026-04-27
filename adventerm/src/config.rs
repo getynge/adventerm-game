@@ -376,6 +376,10 @@ impl SchemeRegistry {
 pub struct Config {
     pub keybinds: KeybindMap,
     pub color_scheme: String,
+    /// Whether the dev console is reachable via backtick. `None` means
+    /// "use the build default" (debug builds → on, release builds → off).
+    /// Once a user toggles the setting, the choice persists.
+    pub dev_console_enabled: Option<bool>,
 }
 
 impl Default for Config {
@@ -383,6 +387,7 @@ impl Default for Config {
         Self {
             keybinds: KeybindMap::default(),
             color_scheme: DEFAULT_SCHEME_NAME.to_string(),
+            dev_console_enabled: None,
         }
     }
 }
@@ -401,6 +406,17 @@ impl Config {
         }
         let bytes = serde_json::to_vec_pretty(self).expect("Config serializes");
         fs::write(path, bytes)
+    }
+
+    /// Resolved enabled-state for the dev console. Falls back to
+    /// `cfg!(debug_assertions)` when the user has not made an explicit
+    /// choice yet.
+    pub fn dev_console_enabled(&self) -> bool {
+        self.dev_console_enabled.unwrap_or(cfg!(debug_assertions))
+    }
+
+    pub fn set_dev_console_enabled(&mut self, on: bool) {
+        self.dev_console_enabled = Some(on);
     }
 }
 

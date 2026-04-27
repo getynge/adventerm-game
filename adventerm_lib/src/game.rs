@@ -57,13 +57,17 @@ pub struct GameState {
     pub explored: ExploredSubsystem,
     #[serde(skip)]
     pending_encounter: Option<EntityId>,
+    /// Dev-console override: when true, every tile of the current room is
+    /// treated as visible and lit. Transient — cleared on load.
+    #[serde(skip)]
+    fullbright: bool,
 }
 
 impl PartialEq for GameState {
     fn eq(&self, other: &Self) -> bool {
-        // Transient `pending_encounter` is intentionally excluded from
-        // equality so a freshly-loaded state and the pre-save state
-        // compare equal during round-trip tests.
+        // Transient `pending_encounter` and `fullbright` are intentionally
+        // excluded from equality so a freshly-loaded state and the pre-save
+        // state compare equal during round-trip tests.
         self.dungeon == other.dungeon
             && self.current_room == other.current_room
             && self.player == other.player
@@ -94,6 +98,7 @@ impl GameState {
             player,
             explored: ExploredSubsystem::default(),
             pending_encounter: None,
+            fullbright: false,
         };
         // Seed the per-game enemy RNG up front so behavior matches the
         // pre-ECS layout exactly. (Lazy rehydration covers the load path.)
@@ -225,6 +230,16 @@ impl GameState {
     /// the slot before the binary can see it.
     pub fn peek_pending_encounter(&self) -> Option<EntityId> {
         self.pending_encounter
+    }
+
+    /// Dev-console "fullbright" override: when on, every tile of the current
+    /// room renders visible and lit. Transient — never serialized.
+    pub fn fullbright(&self) -> bool {
+        self.fullbright
+    }
+
+    pub fn set_fullbright(&mut self, on: bool) {
+        self.fullbright = on;
     }
 
     /// Recompute the player's visibility / lit cache for the current room

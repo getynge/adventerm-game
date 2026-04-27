@@ -104,3 +104,14 @@ See [CLAUDE.md "Gameplay constructs"](../CLAUDE.md) for the full how-to. Quick m
 **Don't** add per-category fields to `World`. Write a new subsystem instead — `World` stays a stable substrate as the game grows.
 
 **Don't** match on `ItemKind`, `AbilityKind`, `PassiveKind`, or `EnemyKind` outside a `behavior_for`-style registry. The whole point of the trait is that `GameState`, `BattleState`, and other generic call sites never need to learn about specific kinds.
+
+## Developer console
+
+| Need | Use |
+|------|-----|
+| Add a new command | Drop a ZST under [adventerm_lib/src/console/commands/](../adventerm_lib/src/console/commands/) with `impl DevCommand`, then add a single `&NAME` entry to `REGISTRY` in [adventerm_lib/src/console/command.rs](../adventerm_lib/src/console/command.rs). The completer queries the same registry — no parallel structures. |
+| Emit a developer-visible log line | `log::info!`/`warn!`/`error!`/`debug!`/`trace!` from anywhere in either crate. The console's `log::Log` impl funnels every record into a 256-line ring buffer and the popup renders the tail. |
+| Random ground-item draw matching dungeon generation | `items::random::random_item_kind(rng)` |
+| Spawn at/near the player from a dev tool | `systems::dev::spawn_item_at_player`, `systems::dev::spawn_enemy_near_player` |
+| Toggle world-illumination override | `GameState::set_fullbright(bool)` then `GameState::refresh_visibility()` |
+| Reverse-lookup a kind from a display name | `ItemKind::from_display_name` / `EnemyKind::from_display_name` (case-insensitive) |
