@@ -2,18 +2,34 @@ use crate::los;
 use crate::room::Room;
 
 /// Recompute the per-tile `visible` (player LOS) and `lit` (persistent
-/// lighting from the `Lighting` subsystem) bitmaps for `room`. Both buffers
-/// are resized to `room.width * room.height` row-major.
-///
-/// Active flares short-circuit `lit` to "every tile" — that's the rule the
-/// flare item type encodes via `FlareSource`.
+/// lighting from the `Lighting` subsystem) bitmaps for `room` using the
+/// player's default LOS radius. Thin wrapper around
+/// [`compute_room_lighting_with_radius`] for callers that don't care about
+/// equipment-driven vision changes.
 pub fn compute_room_lighting(
     room: &Room,
     player: (usize, usize),
     visible: &mut Vec<bool>,
     lit: &mut Vec<bool>,
 ) {
-    los::compute_visible(room, player, visible);
+    compute_room_lighting_with_radius(room, player, los::LOS_RANGE, visible, lit);
+}
+
+/// Recompute the per-tile `visible` and `lit` bitmaps with an explicit
+/// player vision `radius`. Light sources still use their own
+/// (`LightSource::radius`) constants — the player's vision multiplier
+/// affects only the player's LOS disc.
+///
+/// Active flares short-circuit `lit` to "every tile" — that's the rule the
+/// flare item type encodes via `FlareSource`.
+pub fn compute_room_lighting_with_radius(
+    room: &Room,
+    player: (usize, usize),
+    radius: usize,
+    visible: &mut Vec<bool>,
+    lit: &mut Vec<bool>,
+) {
+    los::compute_visible_with_radius(room, player, radius, visible);
 
     let len = room.width * room.height;
     lit.clear();

@@ -1,4 +1,5 @@
 pub mod active;
+pub mod fireball;
 pub mod impact;
 pub mod passive;
 
@@ -19,12 +20,14 @@ pub const PASSIVE_SLOTS: usize = 4;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AbilityKind {
     Impact,
+    Fireball,
 }
 
 impl AbilityKind {
     pub fn name(self) -> &'static str {
         match self {
             AbilityKind::Impact => "Impact",
+            AbilityKind::Fireball => "Fireball",
         }
     }
 }

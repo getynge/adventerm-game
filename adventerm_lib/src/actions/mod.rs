@@ -11,18 +11,24 @@
 //! [`Action`]: crate::action::Action
 
 pub mod combat_action;
+pub mod consume_action;
+pub mod equip_action;
 pub mod interact_action;
 pub mod move_action;
 pub mod pickup_action;
 pub mod place_action;
 pub mod quick_move_action;
+pub mod unequip_action;
 
 pub use combat_action::DefeatEnemyAction;
+pub use consume_action::ConsumeItemAction;
+pub use equip_action::EquipItemAction;
 pub use interact_action::InteractAction;
 pub use move_action::MoveAction;
 pub use pickup_action::PickUpAction;
 pub use place_action::PlaceItemAction;
 pub use quick_move_action::QuickMoveAction;
+pub use unequip_action::UnequipItemAction;
 
 #[cfg(test)]
 mod tests;

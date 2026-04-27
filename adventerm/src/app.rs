@@ -2,16 +2,18 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use adventerm_lib::{
-    battle, dispatch, save, Battle, BattleResult, BattleTurn, DefeatEnemyAction, Direction,
-    GameState, InteractAction, MoveAction, MoveOutcome, PickUpAction, PlaceItemAction,
-    QuickMoveAction, Save, SaveSlot,
+    battle, category_of, consume_intent_of, dispatch, save, Battle, BattleResult, BattleTurn,
+    ConsumeIntent, ConsumeItemAction, ConsumeTarget, DefeatEnemyAction, Direction, EquipItemAction,
+    EquipSlot, GameState, InteractAction, ItemCategory, MoveAction, MoveOutcome, PickUpAction,
+    PlaceItemAction, QuickMoveAction, Save, SaveSlot, UnequipItemAction,
 };
 use crossterm::event::{Event, KeyCode, KeyEventKind};
 
 use crate::config::{self, BoundAction, ColorScheme, Config, Key, SchemeRegistry};
 use crate::input::{Action, TextInputAction};
 use crate::menu::{
-    InventoryTab, MainMenuOption, MenuState, OptionsRow, PauseMenuOption, SaveBrowser, Status,
+    InventoryTab, ItemsFocus, MainMenuOption, MenuState, OptionsRow, PauseMenuOption,
+    PendingConsume, PendingIntent, SaveBrowser, Status,
 };
 
 const MAX_SAVE_NAME_CHARS: usize = 32;
@@ -36,8 +38,11 @@ pub enum Screen {
     Inventory {
         game: GameState,
         tab: InventoryTab,
+        items_focus: ItemsFocus,
         item_cursor: usize,
+        equipment_cursor: usize,
         ability_cursor: usize,
+        pending_consume: Option<PendingConsume>,
         status: Status,
     },
     Paused {
@@ -494,8 +499,11 @@ impl App {
                 self.screen = Screen::Inventory {
                     game,
                     tab: InventoryTab::Items,
+                    items_focus: ItemsFocus::List,
                     item_cursor: 0,
+                    equipment_cursor: 0,
                     ability_cursor: 0,
+                    pending_consume: None,
                     status: Status::None,
                 };
             }
@@ -630,10 +638,22 @@ impl App {
     }
 
     fn handle_inventory(&mut self, action: Action) {
+        // Pending-consume substate hijacks navigation: the user is locked
+        // into the abilities tab picking a slot until they confirm or
+        // cancel. Resolves before the regular tab/cursor routing.
+        if matches!(action, Action::Confirm | Action::Escape | Action::Up | Action::Down)
+            && self.has_pending_consume()
+        {
+            self.handle_inventory_pending_consume(action);
+            return;
+        }
+
         let Screen::Inventory {
             game,
             tab,
+            items_focus,
             item_cursor,
+            equipment_cursor,
             ability_cursor,
             ..
         } = &mut self.screen
@@ -641,8 +661,20 @@ impl App {
             return;
         };
         match (action, *tab) {
+            (Action::Inventory, InventoryTab::Items) if *items_focus == ItemsFocus::List => {
+                *items_focus = ItemsFocus::Sidebar;
+            }
+            (Action::Inventory, InventoryTab::Items) => {
+                // Sidebar focus → advance to the next tab; reset focus
+                // when we return to Items so List is the default.
+                *items_focus = ItemsFocus::List;
+                *tab = tab.next();
+            }
             (Action::Inventory, _) => {
                 *tab = tab.next();
+                if *tab == InventoryTab::Items {
+                    *items_focus = ItemsFocus::List;
+                }
             }
             (Action::Escape, _) => {
                 let Screen::Inventory { game, .. } =
@@ -652,17 +684,31 @@ impl App {
                 };
                 self.screen = Screen::Playing(game);
             }
-            (Action::Up, InventoryTab::Items) => {
-                if *item_cursor > 0 {
-                    *item_cursor -= 1;
+            (Action::Up, InventoryTab::Items) => match *items_focus {
+                ItemsFocus::List => {
+                    if *item_cursor > 0 {
+                        *item_cursor -= 1;
+                    }
                 }
-            }
-            (Action::Down, InventoryTab::Items) => {
-                let len = game.inventory().len();
-                if *item_cursor + 1 < len {
-                    *item_cursor += 1;
+                ItemsFocus::Sidebar => {
+                    if *equipment_cursor > 0 {
+                        *equipment_cursor -= 1;
+                    }
                 }
-            }
+            },
+            (Action::Down, InventoryTab::Items) => match *items_focus {
+                ItemsFocus::List => {
+                    let len = game.inventory().len();
+                    if len > 0 && *item_cursor + 1 < len {
+                        *item_cursor += 1;
+                    }
+                }
+                ItemsFocus::Sidebar => {
+                    if *equipment_cursor + 1 < EquipSlot::ALL.len() {
+                        *equipment_cursor += 1;
+                    }
+                }
+            },
             (Action::Up, InventoryTab::Abilities) => {
                 if *ability_cursor > 0 {
                     *ability_cursor -= 1;
@@ -675,23 +721,184 @@ impl App {
                 }
             }
             (Action::Confirm, InventoryTab::Items) => {
+                self.confirm_inventory_items_tab();
+            }
+            // Confirm in Abilities/Stats is a no-op for now — abilities have
+            // no in-menu interaction yet (they're used during battle), and the
+            // Stats tab is read-only per the approved scope.
+            _ => {}
+        }
+    }
+
+    fn has_pending_consume(&self) -> bool {
+        matches!(
+            &self.screen,
+            Screen::Inventory {
+                pending_consume: Some(_),
+                ..
+            }
+        )
+    }
+
+    /// Confirm-on-Items dispatches by category: Placeable → place + close,
+    /// Equipment → equip in place, Consumable → either fire immediately
+    /// (Immediate intent) or enter the pending-pick substate.
+    fn confirm_inventory_items_tab(&mut self) {
+        let Screen::Inventory {
+            game,
+            items_focus,
+            item_cursor,
+            equipment_cursor,
+            tab,
+            pending_consume,
+            status,
+            ..
+        } = &mut self.screen
+        else {
+            return;
+        };
+        match *items_focus {
+            ItemsFocus::List => {
                 let len = game.inventory().len();
                 if len == 0 {
                     return;
                 }
                 let slot = (*item_cursor).min(len - 1);
-                let player = game.player.entity();
-                let _ = dispatch(game, player, PlaceItemAction { slot });
-                let Screen::Inventory { game, .. } =
-                    std::mem::replace(&mut self.screen, Screen::Quit)
-                else {
-                    return;
-                };
-                self.screen = Screen::Playing(game);
+                let kind = game.inventory()[slot];
+                let category = category_of(kind);
+                match category {
+                    ItemCategory::Placeable => {
+                        let player = game.player.entity();
+                        let _ = dispatch(game, player, PlaceItemAction { slot });
+                        let Screen::Inventory { game, .. } =
+                            std::mem::replace(&mut self.screen, Screen::Quit)
+                        else {
+                            return;
+                        };
+                        self.screen = Screen::Playing(game);
+                    }
+                    ItemCategory::Equipment(_) => {
+                        let player = game.player.entity();
+                        let _ = dispatch(
+                            game,
+                            player,
+                            EquipItemAction {
+                                inventory_slot: slot,
+                            },
+                        );
+                        // Cursor may now point past the new (shorter) list.
+                        let new_len = game.inventory().len();
+                        if new_len == 0 {
+                            *item_cursor = 0;
+                        } else if *item_cursor >= new_len {
+                            *item_cursor = new_len - 1;
+                        }
+                        *status = Status::Info(format!("Equipped {}.", kind.name()));
+                    }
+                    ItemCategory::Consumable => {
+                        let intent = consume_intent_of(kind);
+                        match intent {
+                            ConsumeIntent::Immediate => {
+                                let player = game.player.entity();
+                                let _ = dispatch(
+                                    game,
+                                    player,
+                                    ConsumeItemAction {
+                                        inventory_slot: slot,
+                                        target: ConsumeTarget::None,
+                                    },
+                                );
+                                *status = Status::Info(format!("Consumed {}.", kind.name()));
+                            }
+                            ConsumeIntent::PickAbilitySlot => {
+                                *pending_consume = Some(PendingConsume {
+                                    inventory_slot: slot,
+                                    kind,
+                                    intent: PendingIntent::AbilitySlot,
+                                });
+                                *tab = InventoryTab::Abilities;
+                            }
+                            // ConsumeIntent is `non_exhaustive`; future
+                            // intents must add a UI branch — short-circuit
+                            // with an error until they do.
+                            _ => {
+                                *status = Status::Error(format!(
+                                    "Cannot use {} from inventory yet.",
+                                    kind.name()
+                                ));
+                            }
+                        }
+                    }
+                }
             }
-            // Confirm in Abilities/Stats is a no-op for now — abilities have
-            // no in-menu interaction yet (they're used during battle), and the
-            // Stats tab is read-only per the approved scope.
+            ItemsFocus::Sidebar => {
+                let slot = EquipSlot::ALL[(*equipment_cursor).min(EquipSlot::ALL.len() - 1)];
+                if let Some(kind) = game.equipment().slot(slot) {
+                    let player = game.player.entity();
+                    let _ = dispatch(game, player, UnequipItemAction { slot });
+                    *status = Status::Info(format!("Unequipped {}.", kind.name()));
+                }
+            }
+        }
+    }
+
+    fn handle_inventory_pending_consume(&mut self, action: Action) {
+        let Screen::Inventory {
+            game,
+            ability_cursor,
+            pending_consume,
+            status,
+            tab,
+            ..
+        } = &mut self.screen
+        else {
+            return;
+        };
+        let Some(pending) = *pending_consume else {
+            return;
+        };
+        match action {
+            Action::Up => {
+                if *ability_cursor > 0 {
+                    *ability_cursor -= 1;
+                }
+            }
+            Action::Down => {
+                let slots = game.abilities().active_slots.len();
+                if *ability_cursor + 1 < slots {
+                    *ability_cursor += 1;
+                }
+            }
+            Action::Confirm => match pending.intent {
+                PendingIntent::AbilitySlot => {
+                    let player = game.player.entity();
+                    let chosen = *ability_cursor;
+                    let kind = pending.kind;
+                    let outcome = dispatch(
+                        game,
+                        player,
+                        ConsumeItemAction {
+                            inventory_slot: pending.inventory_slot,
+                            target: ConsumeTarget::AbilitySlot(chosen),
+                        },
+                    );
+                    *pending_consume = None;
+                    *tab = InventoryTab::Abilities;
+                    *status = match outcome {
+                        Some(_) => Status::Info(format!(
+                            "{} learned into slot {}.",
+                            kind.name(),
+                            chosen + 1
+                        )),
+                        None => Status::Error("Could not learn that ability.".into()),
+                    };
+                }
+            },
+            Action::Escape => {
+                *pending_consume = None;
+                *tab = InventoryTab::Items;
+                *status = Status::None;
+            }
             _ => {}
         }
     }

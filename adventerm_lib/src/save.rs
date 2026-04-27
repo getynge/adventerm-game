@@ -6,7 +6,7 @@ use std::time::SystemTime;
 
 use crate::game::GameState;
 
-pub const SAVE_VERSION: u32 = 8;
+pub const SAVE_VERSION: u32 = 9;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Save {
@@ -192,6 +192,25 @@ mod tests {
         let recovered = Save::from_bytes(&bytes).expect("decode");
         assert_eq!(recovered.state, state);
         assert_eq!(recovered.name, "My Run");
+    }
+
+    #[test]
+    fn round_trip_preserves_equipment() {
+        use crate::items::{EquipSlot, ItemKind};
+        let mut state = GameState::new_seeded(13);
+        state
+            .player
+            .equipment_mut()
+            .equip(EquipSlot::Head, ItemKind::Goggles);
+        state
+            .player
+            .equipment_mut()
+            .equip(EquipSlot::Arms, ItemKind::Gauntlets);
+        let save = Save::new("Geared".into(), state.clone());
+        let bytes = save.to_bytes();
+        let recovered = Save::from_bytes(&bytes).expect("decode");
+        assert_eq!(recovered.state.equipment(), state.equipment());
+        assert_eq!(recovered.state.vision_radius(), state.vision_radius());
     }
 
     #[test]

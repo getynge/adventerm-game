@@ -6,13 +6,15 @@ Pure gameplay logic. No `ratatui`/`crossterm` imports. Serde for serialization, 
 
 Re-exported from [lib.rs](../adventerm_lib/src/lib.rs):
 
-- World types: `EntityId`, `World`, `Room`, `RoomId`, `DoorId`, `TileKind`, `Tile`, `Direction`, `Stats`, `Attribute`, `AbilityKind`, `PassiveKind`, `EnemyKind`, `ItemKind`.
-- Top-level: `GameState`, `Dungeon`, `DoorView`, `DoorSubsystem`, `DungeonClock`.
+- World types: `EntityId`, `World`, `Room`, `RoomId`, `DoorId`, `TileKind`, `Tile`, `Direction`, `Stats`, `Attribute`, `AbilityKind`, `PassiveKind`, `EnemyKind`, `ItemKind`, `ItemCategory`, `EquipSlot`, `EquipEffect`, `ConsumeIntent`, `ConsumeTarget`, `ConsumeOutcome`.
+- Top-level: `GameState`, `Dungeon`, `DoorView`, `DoorSubsystem`, `DungeonClock`, `Equipment`.
 - Movement / interaction: `MoveOutcome`, `PlaceOutcome`, `DoorEvent`.
+- Actions: `MoveAction`, `QuickMoveAction`, `InteractAction`, `PickUpAction`, `PlaceItemAction`, `EquipItemAction`, `UnequipItemAction`, `ConsumeItemAction`, `DefeatEnemyAction`.
 - Battle: `Battle`, `BattleSubsystem`, `BattleLog`, `BattleTurn`, `BattleResult`, `Combatants`, `HpSnapshot`.
-- Events: `DungeonEvent`, `TickLog`.
+- Events: `DungeonEvent`, `TickLog`, `ItemEquipped`, `ItemUnequipped`, `ItemConsumed`.
 - Save: `Save`, `SaveError`, `SaveSlot`, `SAVE_VERSION`.
 - Constants: `LIGHT_RANGE`, `LOS_RANGE`.
+- Item facades: `category_of(kind)`, `consume_intent_of(kind)` — used by the binary to dispatch Confirm by category without matching on `ItemKind`.
 
 Per-room subsystem types (`Lighting`, `ItemSubsystem`, `Enemies`, `Abilities`) are deliberately **not** re-exported — the binary reads them through `Room`/`GameState` facades.
 
@@ -23,7 +25,7 @@ Per-room subsystem types (`Lighting`, `ItemSubsystem`, `Enemies`, `Abilities`) a
 | Scope | World | Subsystems |
 | --- | --- | --- |
 | Per-room | `Room::world` | `Lighting`, `ItemSubsystem`, `Enemies` |
-| Top-level (player) | `PlayerSubsystem::world` | inventory, stats, HP, abilities, visibility cache, enemy RNG |
+| Top-level (player) | `PlayerSubsystem::world` | inventory, stats, HP, abilities, equipment, visibility cache, enemy RNG |
 | Per-room memory | `ExploredSubsystem::world` | `ExploredMap` per room |
 | Dungeon | `Dungeon::world` | `DoorSubsystem`, `DungeonClock` (turn counter + `TickLog`) |
 | Per-battle | `BattleSubsystem::world` | `BattleTurn`, `Combatants`, `HpSnapshot`, `BattleLog` |
@@ -44,7 +46,7 @@ Read-only facade methods (the only methods on `GameState`):
 
 - `current_room() -> &Room`
 - `player_pos() -> (usize, usize)` (delegates to `PlayerSubsystem`)
-- `stats() -> &Stats`, `cur_health() -> u8`, `set_cur_health(u8)`, `inventory() -> &[ItemKind]`, `abilities() -> &Abilities`
+- `stats() -> &Stats`, `effective_stats() -> Stats` (base + equipment), `cur_health() -> u8`, `set_cur_health(u8)`, `inventory() -> &[ItemKind]`, `abilities() -> &Abilities`, `equipment() -> &Equipment`, `vision_radius() -> usize`
 - `tile_at(x, y)`, `terrain_at(x, y)` — for renderers (with/without the player overlay)
 - `is_visible(x, y)`, `is_explored(x, y)`
 - `player_on_door() -> Option<DoorId>` — for "Press Enter to open door" prompts
@@ -75,7 +77,7 @@ Each module exposes free functions taking `&mut GameState` (or a narrower borrow
 
 ### [events.rs](../adventerm_lib/src/events.rs) — dungeon event log
 
-- `DungeonEvent` — sum type of every per-step gameplay event: `PlayerMoved`, `EnemyMoved`, `EnemyEngaged`, `EnemyDefeated`, `DoorTraversed`, `FlareBurnedOut`, `ItemPickedUp`, `ItemPlaced`.
+- `DungeonEvent` — sum type of every per-step gameplay event: `PlayerMoved`, `EnemyMoved`, `EnemyEngaged`, `EnemyDefeated`, `DoorTraversed`, `FlareBurnedOut`, `ItemPickedUp`, `ItemPlaced`, `ItemEquipped`, `ItemUnequipped`, `ItemConsumed`.
 - `TickLog` — bounded `VecDeque<DungeonEvent>`. `TICK_LOG_CAPACITY = 128`; oldest events drop on overflow. Lives as a component on the dungeon's clock entity, marked `#[serde(skip)]` (transient — fresh loads start with an empty log).
 
 Cross-cutting consumers (renderers, tests, achievements, replays) read the log instead of each subsystem hooking each emitter.
@@ -103,14 +105,21 @@ Cross-cutting consumers (renderers, tests, achievements, replays) read the log i
 
 ### [items/](../adventerm_lib/src/items/) — items as entities + behaviors
 
-- `kind.rs`: `ItemKind::{Torch, Flare}` with `name()` / `glyph()`.
-- `storage.rs`: `ItemSubsystem` — per-room ground-item storage (`ComponentStore<ItemKind>`). `spawn_at`, `take_at`, `iter_at`, `any_at`, `positions`.
-- `behavior.rs`: `ItemBehavior` trait + `PlaceCtx { player_pos, world, lighting }` + `behavior_for(kind) -> &'static dyn ItemBehavior`. The single point that enumerates kinds. `PlaceOutcome` is `Serialize/Deserialize` so it can ride inside `DungeonEvent::ItemPlaced`.
-- `torch.rs`, `flare.rs`: per-kind `ItemBehavior` impls (zero-sized types).
+- `kind.rs`: `ItemKind::{Torch, Flare, Goggles, Shirt, Gauntlets, Trousers, Boots, ScrollOfFire}` with `name()` / `glyph()`.
+- `category.rs`: `ItemCategory::{Placeable, Equipment(EquipSlot), Consumable}` and `EquipSlot::{Head, Torso, Arms, Legs, Feet}`. Drives action-layer dispatch.
+- `storage.rs`: `ItemSubsystem` — per-room ground-item storage (`ComponentStore<ItemKind>`). `spawn_at`, `take_at`, `iter_at`, `iter_at_any`, `any_at`, `positions`.
+- `behavior.rs`: `ItemBehavior` trait + `PlaceCtx`, `ConsumeCtx`, `EquipEffect`, `ConsumeIntent`, `ConsumeTarget`, `ConsumeOutcome` + `behavior_for(kind) -> &'static dyn ItemBehavior` and `equip_slot_of(kind) -> Option<EquipSlot>`. The single point that enumerates kinds. Trait methods (all defaulted except `category`): `category()`, `on_place()`, `equip_effect()`, `consume_intent()`, `on_consume()`. `PlaceOutcome` and `ConsumeOutcome` are `Serialize/Deserialize` so they can ride inside `events::ItemPlaced` / `events::ItemConsumed`.
+- `torch.rs`, `flare.rs`, `goggles.rs`, `shirt.rs`, `gauntlets.rs`, `trousers.rs`, `boots.rs`, `scroll_of_fire.rs`: per-kind `ItemBehavior` impls (zero-sized types). Equipment modules override `equip_effect`; the scroll overrides `consume_intent` (returns `PickAbilitySlot`) and `on_consume`.
+
+### [equipment/](../adventerm_lib/src/equipment/) — worn items
+
+- `Equipment { head, torso, arms, legs, feet: Option<ItemKind> }` — per-player worn-item state, stored as a `ComponentStore<Equipment>` on the player entity.
+- Methods: `slot(s)`, `equip(s, kind) -> Option<prev>`, `unequip(s) -> Option<kind>`, `iter()`, `aggregate_effect() -> EquipEffect` (sums attack/defense/speed across slots; multiplies vision).
 
 ### [visibility.rs](../adventerm_lib/src/visibility.rs) — lighting computation
 
-- `compute_room_lighting(room, player, &mut visible, &mut lit)` — runs player LOS into `visible`, then ORs each `LightSource` disc (or "all tiles" if any flare is active) into `lit`. Called by `systems::refresh_visibility`.
+- `compute_room_lighting(room, player, &mut visible, &mut lit)` — convenience wrapper that uses the default `LOS_RANGE`.
+- `compute_room_lighting_with_radius(room, player, radius, &mut visible, &mut lit)` — runs player LOS into `visible` at the supplied `radius` (the player's effective vision after equipment), then ORs each `LightSource` disc (or "all tiles" if any flare is active) into `lit`. Light sources still use their own constants — equipment only affects the player's LOS. Called by `systems::refresh_visibility`.
 
 ### [dungeon.rs](../adventerm_lib/src/dungeon.rs) + [dungeon/](../adventerm_lib/src/dungeon/) — generation + dungeon-scoped ECS
 
@@ -164,13 +173,13 @@ Methods: `new_filled`, `kind_at`, `set`, `is_walkable`, `in_bounds`, `doors()`, 
 - `Save { version, name, state }` — JSON envelope around `GameState`.
 - `SaveSlot { path, name, modified }`.
 - `SaveError::{Format, UnsupportedVersion}`.
-- `SAVE_VERSION = 7` — bumped for the dungeon-world / door-entity / battle-ECS layout. Older versions rejected.
+- `SAVE_VERSION = 9` — bumped for the equipment ComponentStore on `PlayerSubsystem`. Older versions rejected.
 
 Functions: `Save::new`, `Save::to_bytes`, `Save::from_bytes` (validates version, then calls `state.refresh_visibility()` to rehydrate the transient FOV bitmap), `slugify(name)`, `slot_path(dir, name)`, `list_saves(dir)` (sorted newest first; tolerates missing dir / corrupt files / version mismatches), `delete_save(path)`.
 
 ### [los.rs](../adventerm_lib/src/los.rs) — line-of-sight
 
-- `LOS_RANGE: usize = 6`, `CELL_ASPECT_Y_OVER_X: f32 = 2.0`. `compute_visible(room, origin, out)` fills row-major bools per tile.
+- `LOS_RANGE: usize = 12`, `LIGHT_RANGE: usize = LOS_RANGE`, `CELL_ASPECT_Y_OVER_X: f32 = 2.0`. `compute_visible(room, origin, out)` fills row-major bools per tile at the default `LOS_RANGE`. `compute_visible_with_radius(room, origin, radius, out)` exposes the runtime radius so equipment-driven multipliers (goggles) slot in cleanly.
 
 ### [stats/mod.rs](../adventerm_lib/src/stats/mod.rs) — stat block
 
@@ -183,7 +192,8 @@ Functions: `Save::new`, `Save::to_bytes`, `Save::from_bytes` (validates version,
 - `active.rs`: `ActiveAbility` trait, `AbilityCtx { attacker, defender }`, `AbilityOutcome { damage }`, `ability_behavior_for(kind)`.
 - `passive.rs`: `PassiveAbility` trait + `passive_behavior_for`. `PassiveKind` is currently `pub enum {}`.
 - `impact.rs`: `ImpactAbility` ZST. Damage = `max(1, attacker.attack - defender.defense)`.
-- `AbilityKind::{Impact}`.
+- `fireball.rs`: `FireballAbility` ZST. Base damage 8, mitigated by `defender.defense / 2`, floored at 1. Fire affinity is implicit in the ability identity for now.
+- `AbilityKind::{Impact, Fireball}`.
 
 ### [enemies/](../adventerm_lib/src/enemies/) — enemies + AI
 

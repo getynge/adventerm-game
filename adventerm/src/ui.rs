@@ -61,8 +61,11 @@ pub fn render(frame: &mut Frame, app: &App) {
         Screen::Inventory {
             game,
             tab,
+            items_focus,
             item_cursor,
+            equipment_cursor,
             ability_cursor,
+            pending_consume,
             status,
         } => {
             gameplay::render(frame, game, status.text(), &scheme_colors);
@@ -70,8 +73,11 @@ pub fn render(frame: &mut Frame, app: &App) {
                 frame,
                 game,
                 *tab,
+                *items_focus,
                 *item_cursor,
+                *equipment_cursor,
                 *ability_cursor,
+                *pending_consume,
                 &scheme_colors.menu,
             );
         }

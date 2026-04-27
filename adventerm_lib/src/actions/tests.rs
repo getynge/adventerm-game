@@ -8,7 +8,7 @@ use std::sync::Mutex;
 use crate::action::dispatch;
 use crate::actions::{InteractAction, MoveAction, PickUpAction, PlaceItemAction};
 use crate::event::EventBus;
-use crate::events::{DoorTraversed, ItemPlaced, PlayerMoved};
+use crate::events::{DoorTraversed, ItemEquipped, ItemPlaced, ItemUnequipped, PlayerMoved};
 use crate::game::{GameState, MoveOutcome};
 use crate::items::ItemKind;
 use crate::registry::{build_registry, ActorKind, EventHandler, Registry};
@@ -179,4 +179,6 @@ fn build_registry_subscribes_visibility_and_enemy_tick_to_player_moved() {
     // Visibility-only subscriptions:
     assert_eq!(reg.handler_count::<DoorTraversed>(), 1);
     assert_eq!(reg.handler_count::<ItemPlaced>(), 1);
+    assert_eq!(reg.handler_count::<ItemEquipped>(), 1);
+    assert_eq!(reg.handler_count::<ItemUnequipped>(), 1);
 }

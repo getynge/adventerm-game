@@ -38,10 +38,20 @@ const WALL_LIGHT_COUNT_MAX_EXCL: usize = 4;
 const GROUND_ITEM_CHANCE_NUM: u32 = 1;
 const GROUND_ITEM_CHANCE_DEN: u32 = 2;
 
-/// Conditional on a ground item spawning, the probability that it is a flare
-/// rather than a torch. Kept low so flares feel rare.
-const FLARE_OF_ITEM_NUM: u32 = 1;
-const FLARE_OF_ITEM_DEN: u32 = 8;
+/// Weighted distribution used when a ground-item draw fires. Torches stay
+/// the most common find; equipment fills the middle band; flares and the
+/// Scroll of Fire are intentionally rare. Adding a new variant: append a
+/// `(kind, weight)` row — the weighted-pick helper handles the rest.
+const ITEM_WEIGHTS: &[(ItemKind, u32)] = &[
+    (ItemKind::Torch, 30),
+    (ItemKind::Flare, 4),
+    (ItemKind::Shirt, 10),
+    (ItemKind::Gauntlets, 10),
+    (ItemKind::Trousers, 10),
+    (ItemKind::Boots, 10),
+    (ItemKind::Goggles, 6),
+    (ItemKind::ScrollOfFire, 2),
+];
 
 /// Available enemy kinds. Adding a new variant to `EnemyKind` is enough to
 /// pull it into the spawn pool.
@@ -382,7 +392,8 @@ fn wall_tiles_adjacent_to_floor(room: &Room) -> Vec<(usize, usize)> {
 }
 
 /// Place a single ground item with a low per-room probability. The item is
-/// spawned as an entity in the room's `World` via `ItemSubsystem::spawn_at`.
+/// spawned as an entity in the room's `World` via `ItemSubsystem::spawn_at`;
+/// the kind comes from the weighted [`ITEM_WEIGHTS`] table.
 fn place_room_items(room: &mut Room, rng: &mut Rng) {
     if !rng.chance(GROUND_ITEM_CHANCE_NUM, GROUND_ITEM_CHANCE_DEN) {
         return;
@@ -395,12 +406,24 @@ fn place_room_items(room: &mut Room, rng: &mut Rng) {
         return;
     }
     let pos = floors[rng.range(0, floors.len())];
-    let kind = if rng.chance(FLARE_OF_ITEM_NUM, FLARE_OF_ITEM_DEN) {
-        ItemKind::Flare
-    } else {
-        ItemKind::Torch
-    };
+    let kind = weighted_pick(rng, ITEM_WEIGHTS);
     room.items.spawn_at(&mut room.world, pos, kind);
+}
+
+/// Walk a `(value, weight)` table and pick a value with probability
+/// proportional to its weight. Panics on an empty / all-zero table —
+/// callers maintain `ITEM_WEIGHTS` and that's a load-bearing invariant.
+fn weighted_pick<T: Copy>(rng: &mut Rng, weights: &[(T, u32)]) -> T {
+    let total: u32 = weights.iter().map(|(_, w)| *w).sum();
+    assert!(total > 0, "weighted_pick called with empty/zero table");
+    let mut roll = rng.range(0, total as usize) as u32;
+    for (value, w) in weights {
+        if roll < *w {
+            return *value;
+        }
+        roll -= *w;
+    }
+    weights.last().expect("non-empty checked above").0
 }
 
 /// Place exactly one enemy per non-starting room. Spawn tile is a random
@@ -579,6 +602,27 @@ mod tests {
                 ));
             }
         }
+    }
+
+    #[test]
+    fn weighted_item_spawn_keeps_scroll_rare() {
+        // Sweep enough seeds that every weighted variant has a fair chance
+        // to appear; assert the scroll lands much less often than torches.
+        let mut counts = std::collections::HashMap::<ItemKind, usize>::new();
+        for seed in 0..200u64 {
+            let d = Dungeon::generate(seed);
+            for room in &d.rooms {
+                for kind in room.items.iter_at_any(&room.world) {
+                    *counts.entry(kind).or_default() += 1;
+                }
+            }
+        }
+        let torch = counts.get(&ItemKind::Torch).copied().unwrap_or(0);
+        let scroll = counts.get(&ItemKind::ScrollOfFire).copied().unwrap_or(0);
+        assert!(
+            torch > scroll * 4,
+            "expected torches to outnumber scrolls 4:1, got torch={torch} scroll={scroll}"
+        );
     }
 
     #[test]
