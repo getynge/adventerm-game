@@ -7,8 +7,10 @@ use crate::items::{self, PlaceCtx, PlaceOutcome};
 
 /// "Place the inventory item at `slot` onto the world." Dispatches via
 /// the item kind's behavior (`items::behavior_for`) — this action never
-/// matches on `ItemKind`. Emits [`ItemPlaced`] on success; the bus drain
-/// runs the visibility refresh.
+/// matches on `ItemKind`. Items whose `on_place` returns `None` (i.e.
+/// non-Placeable kinds) are left in the inventory and emit no event.
+/// Emits [`ItemPlaced`] on a real placement; the bus drain runs the
+/// visibility refresh.
 #[derive(Debug, Clone, Copy)]
 pub struct PlaceItemAction {
     pub slot: usize,
@@ -31,7 +33,7 @@ impl Action for PlaceItemAction {
             world: &mut room.world,
             lighting: &mut room.lighting,
         };
-        let outcome = items::behavior_for(kind).on_place(&mut ctx);
+        let outcome = items::behavior_for(kind).on_place(&mut ctx)?;
         game.player.inventory_remove(self.slot);
         bus.emit(ItemPlaced {
             kind,

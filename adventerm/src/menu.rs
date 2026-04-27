@@ -1,4 +1,4 @@
-use adventerm_lib::SaveSlot;
+use adventerm_lib::{ItemKind, SaveSlot};
 
 use crate::config::BoundAction;
 use crate::ui::accel;
@@ -61,6 +61,32 @@ impl InventoryTab {
         let idx = Self::ALL.iter().position(|t| *t == self).unwrap_or(0);
         Self::ALL[(idx + 1) % Self::ALL.len()]
     }
+}
+
+/// Which pane of the Items tab the cursor lives in. The Items tab splits
+/// horizontally into the inventory list (left) and an equipment sidebar
+/// (right); Tab cycles through `List → Sidebar → next inventory tab`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ItemsFocus {
+    List,
+    Sidebar,
+}
+
+/// Pending UI input collection for a Consumable that needs targeting.
+/// Mirrors the library's `ConsumeIntent` so adding a new intent is "add a
+/// `ConsumeIntent` variant + a `PendingIntent` variant + a UI branch."
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PendingIntent {
+    AbilitySlot,
+}
+
+/// Transient inventory state while the player is selecting a target for a
+/// Consumable. Same pattern as `SaveBrowser::pending_delete`.
+#[derive(Debug, Clone, Copy)]
+pub struct PendingConsume {
+    pub inventory_slot: usize,
+    pub kind: ItemKind,
+    pub intent: PendingIntent,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -18,10 +18,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::abilities::Abilities;
 use crate::actions::{
-    DefeatEnemyAction, InteractAction, MoveAction, PickUpAction, PlaceItemAction, QuickMoveAction,
+    ConsumeItemAction, DefeatEnemyAction, EquipItemAction, InteractAction, MoveAction,
+    PickUpAction, PlaceItemAction, QuickMoveAction, UnequipItemAction,
 };
 use crate::ecs::{ComponentStore, EntityId, World};
+use crate::equipment::Equipment;
 use crate::items::ItemKind;
+use crate::los::LOS_RANGE;
 use crate::registry::{ActorKind, Registry};
 use crate::rng::Rng;
 use crate::stats::Stats;
@@ -36,7 +39,20 @@ pub fn register(reg: &mut Registry) {
     reg.register_action::<InteractAction>(ActorKind::Player);
     reg.register_action::<PickUpAction>(ActorKind::Player);
     reg.register_action::<PlaceItemAction>(ActorKind::Player);
+    reg.register_action::<EquipItemAction>(ActorKind::Player);
+    reg.register_action::<UnequipItemAction>(ActorKind::Player);
+    reg.register_action::<ConsumeItemAction>(ActorKind::Player);
     reg.register_action::<DefeatEnemyAction>(ActorKind::Player);
+}
+
+/// Apply a signed equipment bonus to an unsigned stat without
+/// over/underflow. `Stats::new` will clamp the final result.
+fn apply_bonus(base: u8, bonus: i8) -> u8 {
+    if bonus >= 0 {
+        base.saturating_add(bonus as u8)
+    } else {
+        base.saturating_sub(bonus.unsigned_abs())
+    }
 }
 
 /// Carried items, in pickup order.
@@ -70,6 +86,8 @@ pub struct PlayerSubsystem {
     pub stats: ComponentStore<Stats>,
     pub cur_health: ComponentStore<CurHealth>,
     pub abilities: ComponentStore<Abilities>,
+    #[serde(default)]
+    pub equipment: ComponentStore<Equipment>,
     #[serde(skip)]
     pub visibility: ComponentStore<VisibilityCache>,
     #[serde(skip)]
@@ -86,6 +104,7 @@ impl PartialEq for PlayerSubsystem {
             && self.stats == other.stats
             && self.cur_health == other.cur_health
             && self.abilities == other.abilities
+            && self.equipment == other.equipment
     }
 }
 
@@ -108,6 +127,7 @@ impl PlayerSubsystem {
             stats: ComponentStore::default(),
             cur_health: ComponentStore::default(),
             abilities: ComponentStore::default(),
+            equipment: ComponentStore::default(),
             visibility: ComponentStore::default(),
             enemy_rng: ComponentStore::default(),
         };
@@ -115,6 +135,7 @@ impl PlayerSubsystem {
         me.stats.insert(entity, stats);
         me.cur_health.insert(entity, CurHealth(stats.health));
         me.abilities.insert(entity, Abilities::default());
+        me.equipment.insert(entity, Equipment::default());
         me.visibility.insert(entity, VisibilityCache::default());
         me.enemy_rng.insert(entity, EnemyRngState(None));
         me
@@ -175,6 +196,54 @@ impl PlayerSubsystem {
         self.abilities.get(self.entity).expect("abilities")
     }
 
+    pub fn abilities_mut(&mut self) -> &mut Abilities {
+        self.abilities.get_mut(self.entity).expect("abilities")
+    }
+
+    pub fn equipment(&self) -> &Equipment {
+        // Lazily populate after deserialization of an old save where the
+        // field was absent.
+        self.equipment
+            .get(self.entity)
+            .expect("equipment (call ensure_equipment after load)")
+    }
+
+    pub fn equipment_mut(&mut self) -> &mut Equipment {
+        if !self.equipment.contains(self.entity) {
+            self.equipment.insert(self.entity, Equipment::default());
+        }
+        self.equipment.get_mut(self.entity).unwrap()
+    }
+
+    /// Apply equipped-item bonuses to the base stat block. Clamped via
+    /// `Stats::new` so the result stays inside `[STAT_MIN, STAT_MAX]`.
+    pub fn effective_stats(&self) -> Stats {
+        let base = *self.stats();
+        let bonus = self.equipment_or_default().aggregate_effect();
+        Stats::new(
+            base.health,
+            apply_bonus(base.attack, bonus.attack),
+            apply_bonus(base.defense, bonus.defense),
+            apply_bonus(base.speed, bonus.speed),
+            base.attribute,
+        )
+    }
+
+    /// Player's effective LOS radius, after equipment multipliers. Light
+    /// sources read `crate::los::LIGHT_RANGE` instead — they are
+    /// intentionally unaffected by the player's vision gear.
+    pub fn vision_radius(&self) -> usize {
+        let multiplier = self.equipment_or_default().aggregate_effect().vision_multiplier as usize;
+        LOS_RANGE.saturating_mul(multiplier.max(1))
+    }
+
+    fn equipment_or_default(&self) -> Equipment {
+        self.equipment
+            .get(self.entity)
+            .copied()
+            .unwrap_or_default()
+    }
+
     pub fn visibility(&self) -> &VisibilityCache {
         self.visibility
             .get(self.entity)
@@ -202,5 +271,44 @@ impl PlayerSubsystem {
             cell.0 = Some(Rng::new(dungeon_seed ^ salt));
         }
         cell.0.as_mut().unwrap()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::items::EquipSlot;
+
+    #[test]
+    fn effective_stats_apply_equipment_bonuses() {
+        let mut p = PlayerSubsystem::new_at((0, 0));
+        let base = *p.stats();
+        p.equipment_mut().equip(EquipSlot::Arms, ItemKind::Gauntlets);
+        p.equipment_mut().equip(EquipSlot::Torso, ItemKind::Shirt);
+        let eff = p.effective_stats();
+        assert_eq!(eff.attack, base.attack + 1);
+        assert_eq!(eff.defense, base.defense + 1);
+        assert_eq!(eff.health, base.health);
+    }
+
+    #[test]
+    fn vision_radius_doubles_with_goggles() {
+        let mut p = PlayerSubsystem::new_at((0, 0));
+        let base_radius = p.vision_radius();
+        p.equipment_mut().equip(EquipSlot::Head, ItemKind::Goggles);
+        assert_eq!(p.vision_radius(), base_radius * 2);
+    }
+
+    #[test]
+    fn effective_stats_clamp_at_max() {
+        let mut p = PlayerSubsystem::new_at((0, 0));
+        // Bypass the constructor so we can plant a near-max stat directly
+        // and confirm the +1 bonus is clamped instead of overflowing.
+        let entity = p.entity();
+        let mut s = *p.stats();
+        s = Stats::new(s.health, 100, s.defense, s.speed, s.attribute);
+        p.stats.insert(entity, s);
+        p.equipment_mut().equip(EquipSlot::Arms, ItemKind::Gauntlets);
+        assert_eq!(p.effective_stats().attack, 100);
     }
 }

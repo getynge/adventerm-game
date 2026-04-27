@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::abilities::Abilities;
 use crate::dungeon::Dungeon;
 use crate::ecs::EntityId;
+use crate::equipment::Equipment;
 use crate::explored::ExploredSubsystem;
 use crate::items::ItemKind;
 use crate::player::PlayerSubsystem;
@@ -113,6 +114,22 @@ impl GameState {
 
     pub fn stats(&self) -> &Stats {
         self.player.stats()
+    }
+
+    /// Player stats with equipment bonuses applied. Combat reads this; the
+    /// inventory UI shows both the base and effective values.
+    pub fn effective_stats(&self) -> Stats {
+        self.player.effective_stats()
+    }
+
+    pub fn equipment(&self) -> &Equipment {
+        self.player.equipment()
+    }
+
+    /// Effective LOS radius after equipment multipliers (e.g. goggles).
+    /// Light sources use the unrelated `crate::los::LIGHT_RANGE` constant.
+    pub fn vision_radius(&self) -> usize {
+        self.player.vision_radius()
     }
 
     pub fn cur_health(&self) -> u8 {

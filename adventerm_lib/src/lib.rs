@@ -5,6 +5,7 @@ pub mod battle;
 pub mod dungeon;
 pub mod ecs;
 pub mod enemies;
+pub mod equipment;
 pub mod event;
 pub mod events;
 pub mod explored;
@@ -25,19 +26,24 @@ pub mod world;
 pub use abilities::{AbilityKind, PassiveKind};
 pub use action::{dispatch, Action};
 pub use actions::{
-    DefeatEnemyAction, InteractAction, MoveAction, PickUpAction, PlaceItemAction, QuickMoveAction,
+    ConsumeItemAction, DefeatEnemyAction, EquipItemAction, InteractAction, MoveAction,
+    PickUpAction, PlaceItemAction, QuickMoveAction, UnequipItemAction,
 };
 pub use battle::{Battle, BattleLog, BattleResult, BattleSubsystem, BattleTurn, Combatants, HpSnapshot};
 pub use dungeon::{DoorSubsystem, DoorView, Dungeon, DungeonClock};
 pub use ecs::{EntityId, World};
 pub use enemies::EnemyKind;
+pub use equipment::Equipment;
 pub use event::{Event, EventBus};
 pub use events::{
-    DoorTraversed, EnemyDefeated, EnemyEngaged, EnemyMoved, FlareBurnedOut, ItemPickedUp,
-    ItemPlaced, PlayerMoved,
+    DoorTraversed, EnemyDefeated, EnemyEngaged, EnemyMoved, FlareBurnedOut, ItemConsumed,
+    ItemEquipped, ItemPickedUp, ItemPlaced, ItemUnequipped, PlayerMoved,
 };
 pub use game::{DoorEvent, GameState, MoveOutcome, PlaceOutcome};
-pub use items::ItemKind;
+pub use items::{
+    category_of, consume_intent_of, ConsumeIntent, ConsumeOutcome, ConsumeTarget, EquipEffect,
+    EquipSlot, ItemCategory, ItemKind,
+};
 pub use los::{LIGHT_RANGE, LOS_RANGE};
 pub use registry::{build_registry, registry, ActorKind, EventHandler, Registry};
 pub use room::{DoorId, Room, RoomId, TileKind};

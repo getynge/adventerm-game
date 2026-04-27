@@ -1,3 +1,4 @@
+use crate::abilities::fireball::FireballAbility;
 use crate::abilities::impact::ImpactAbility;
 use crate::abilities::AbilityKind;
 use crate::stats::Stats;
@@ -33,6 +34,7 @@ pub trait ActiveAbility {
 pub fn ability_behavior_for(kind: AbilityKind) -> &'static dyn ActiveAbility {
     match kind {
         AbilityKind::Impact => &ImpactAbility,
+        AbilityKind::Fireball => &FireballAbility,
     }
 }
 
@@ -51,5 +53,29 @@ mod tests {
         };
         let out = ability_behavior_for(AbilityKind::Impact).execute(&ctx);
         assert_eq!(out.damage, 7);
+    }
+
+    #[test]
+    fn fireball_deals_base_damage_against_zero_defense() {
+        let attacker = Stats::new(20, 5, 0, 5, Attribute::Fire);
+        let defender = Stats::new(20, 0, 0, 5, Attribute::Water);
+        let ctx = AbilityCtx {
+            attacker: &attacker,
+            defender: &defender,
+        };
+        let out = ability_behavior_for(AbilityKind::Fireball).execute(&ctx);
+        assert_eq!(out.damage, 8);
+    }
+
+    #[test]
+    fn fireball_floor_against_high_defense() {
+        let attacker = Stats::new(20, 5, 0, 5, Attribute::Fire);
+        let defender = Stats::new(20, 0, 100, 5, Attribute::Water);
+        let ctx = AbilityCtx {
+            attacker: &attacker,
+            defender: &defender,
+        };
+        let out = ability_behavior_for(AbilityKind::Fireball).execute(&ctx);
+        assert_eq!(out.damage, 1);
     }
 }

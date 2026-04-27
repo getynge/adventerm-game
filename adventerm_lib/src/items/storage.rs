@@ -59,4 +59,10 @@ impl ItemSubsystem {
             .entities()
             .filter_map(move |e| world.position_of(e))
     }
+
+    /// Yield every ground-item kind in this room, regardless of position.
+    /// Used by determinism / spawn-distribution tests.
+    pub fn iter_at_any<'a>(&'a self, _world: &'a World) -> impl Iterator<Item = ItemKind> + 'a {
+        self.kinds.iter().map(|(_, k)| *k)
+    }
 }
