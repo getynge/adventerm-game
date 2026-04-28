@@ -28,3 +28,17 @@ Constructs (items, lights, flares, future monsters/traps) are **entities** with 
 - **Never** matches on `ItemKind` or any other construct discriminant. If you write `match item.kind` in `game.rs`, the logic belongs in a behavior impl.
 
 **Binary-visible API:** the read-only facades on `Room`/`GameState` (`items_at`, `has_item_at`, `peek_item_here`, `has_light_at`, ...). The binary must not import subsystem types or `World`.
+
+## FFI consumer
+
+`adventerm_ffi` is a second consumer of this crate's public API alongside the `adventerm` binary. **Any change to the public surface flows downstream into the FFI.** Specifically:
+
+- Adding/renaming/removing a `pub` type, function, field, or enum variant that the FFI mirrors (or could mirror) requires a matching change in `adventerm_ffi/src/` — usually `enums.rs`, `structs.rs`, or one of the topical modules (`game.rs`, `query.rs`, `action.rs`, `iter.rs`, `save.rs`, `battle.rs`, `console.rs`).
+- After the FFI change, run `cargo build -p adventerm_ffi` to regenerate `adventerm_ffi/include/adventerm_ffi.h` and commit the diff. CI fails if the committed header drifts from a fresh build.
+- **Enum discriminants are wire-stable on the FFI side.** Append new variants to lib enums; the FFI mirror appends a matching discriminant. Reordering or repurposing a discriminant is a breaking change for every Swift/C consumer.
+- Bumping `SAVE_VERSION` invalidates older saves identically through the FFI — no separate handling needed, but mention it in the change.
+- Hard rule from `00-overview.md`: **no `#[repr(C)]` on lib types, no `extern "C"` in lib code, no `*mut`/`*const` in lib signatures.** The FFI shim layer absorbs all C-ABI concerns.
+
+See [../agents/ffi.md](../agents/ffi.md) for the FFI boundary reference.
+
+**How to perform the sync.** Follow the [sync-ffi](../.claude/skills/sync-ffi/SKILL.md) skill end-to-end. Inline is fine for small mirror changes; consider delegating to a subagent (`Agent` tool, `subagent_type: general-purpose`) running the same skill when the change is broad enough that build/test/diff output would clutter the main context. Or invoke `/sync-ffi` directly.

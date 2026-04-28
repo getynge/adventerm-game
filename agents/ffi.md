@@ -4,6 +4,8 @@ C-compatible FFI surface over [`adventerm_lib`](../adventerm_lib/). Lets non-Rus
 
 The Rust-first rule (CLAUDE.md rule #2 generalized) means `adventerm_lib` exposes idiomatic Rust and `adventerm_ffi` does the shim work. Trait objects, generics, lifetimes, and `Vec<T>`/`HashMap` never appear in `extern "C"` signatures.
 
+**Workflow shortcut.** This doc is the boundary reference. To actually perform a lib→FFI sync, use the [sync-ffi](../.claude/skills/sync-ffi/SKILL.md) skill (or `/sync-ffi`). Inline is fine for small mirror changes; for broad changes that would flood the main context with build/test/diff output, run the skill from a subagent (`Agent` tool, `subagent_type: general-purpose`).
+
 ## 1. Crate location and crate-types
 
 Crate root: [adventerm_ffi/](../adventerm_ffi/). `Cargo.toml` declares three crate-types — each serves a distinct consumer:

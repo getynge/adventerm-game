@@ -17,6 +17,7 @@ Reference docs for Claude Code sessions. These map the codebase's structure so a
 | Adding a gameplay rule, dungeon feature, or save change | [library.md](library.md), then [architecture.md](architecture.md) for the boundary |
 | Adding/changing a screen, menu, keybind, color scheme | [tui.md](tui.md) and [patterns.md](patterns.md) |
 | Adding/changing an FFI export, handle, error code, or Swift consumer pattern | [ffi.md](ffi.md), then [library.md](library.md) for the lib type being shimmed |
+| Mirroring an `adventerm_lib` public-API change into `adventerm_ffi` | Run the [sync-ffi](../.claude/skills/sync-ffi/SKILL.md) skill (or `/sync-ffi`) — inline for small mirrors, subagent for large ones; read [ffi.md](ffi.md) for the conventions it enforces |
 | Cross-cutting refactor or new feature spanning both crates | [architecture.md](architecture.md) first, then the relevant crate doc |
 | Reviewing whether a helper already exists | [patterns.md](patterns.md) |
 

@@ -15,6 +15,8 @@ C-compatible FFI surface over `adventerm_lib`. Lets non-Rust hosts (Swift on iOS
 
 Full conventions, error table, Swift consumer guide, and stability rules live in [agents/ffi.md](../agents/ffi.md). Read that before adding a new export, a new handle type, or a new error variant.
 
+When syncing this crate after an `adventerm_lib` public-API change, run the [sync-ffi](../.claude/skills/sync-ffi/SKILL.md) skill (or `/sync-ffi`). Inline is fine for small mirror changes; consider a subagent (`Agent` tool, `subagent_type: general-purpose`) running the same skill for broad changes where build/test churn would clutter the main context.
+
 ## Commands
 
 - Build: `cargo build -p adventerm_ffi`

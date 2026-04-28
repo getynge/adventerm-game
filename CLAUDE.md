@@ -11,6 +11,9 @@ Adventerm is a TUI adventure game. The workspace has three crates:
 1. **Gameplay logic lives in `adventerm_lib`.** "What the game does" → library. "How the player sees or drives it" → binary.
 2. **The TUI must be replaceable.** The library must not import `ratatui`/`crossterm` or expose frontend-shaped types (key codes, terminal coordinates, widgets).
 3. **UI-only state stays in the binary.** Menu cursors, scroll offsets, animation timers belong to `adventerm`. The library exposes options/data; the binary decides navigation.
+4. **Public API changes in `adventerm_lib` require matching `adventerm_ffi` updates.** The FFI is a non-Rust consumer of the lib's public surface — adding/renaming/removing a public type, enum variant, function, or facade method that the FFI exposes (or could expose) means updating `adventerm_ffi/src/` (mirror types, shims, conversions) and regenerating `adventerm_ffi/include/adventerm_ffi.h` in the same change. Enum discriminants are wire-stable: APPEND new variants only. See [agents/ffi.md](agents/ffi.md) for the boundary rules and stability contract.
+
+   **How to perform the FFI sync.** Follow the [sync-ffi](.claude/skills/sync-ffi/SKILL.md) skill end-to-end (detect lib delta → edit FFI files → regenerate header → `clang -fsyntax-only` → `cargo test -p adventerm_ffi`). Inline is fine for small changes (one new variant, one new query). For large mirror work — broad refactors, many files touched, lots of diff/build noise — consider delegating to a subagent (`Agent` tool, `subagent_type: general-purpose`) running the same skill, so the build/test churn stays out of the main context. The user can also invoke `/sync-ffi` directly.
 
 ## Code style
 
