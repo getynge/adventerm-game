@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["adventerm", "adventerm_lib"]
+members = ["adventerm", "adventerm_lib", "adventerm_ffi"]
 
 # Read the optimization guideline for more details: https://ratatui.rs/recipes/apps/release-your-app/#optimizations
 [profile.release]

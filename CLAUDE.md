@@ -1,9 +1,10 @@
 # CLAUDE.md
 
-Adventerm is a TUI adventure game. The workspace has two crates:
+Adventerm is a TUI adventure game. The workspace has three crates:
 
 - `adventerm_lib` — gameplay logic and state. No TUI dependency. See [adventerm_lib/CLAUDE.md](adventerm_lib/CLAUDE.md).
 - `adventerm` — the TUI binary (`ratatui` 0.30 / `crossterm` 0.29). Renders state, forwards input. See [adventerm/CLAUDE.md](adventerm/CLAUDE.md).
+- `adventerm_ffi` — C-compatible FFI surface over `adventerm_lib` for non-Rust hosts (Swift on iOS, etc.). See [adventerm_ffi/CLAUDE.md](adventerm_ffi/CLAUDE.md).
 
 ## Architectural rules
 

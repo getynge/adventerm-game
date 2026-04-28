@@ -1,0 +1,17 @@
+[package]
+name = "adventerm_ffi"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "adventerm_ffi"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+adventerm_lib = { path = "../adventerm_lib" }
+
+[build-dependencies]
+cbindgen = "0.29"
+
+[dev-dependencies]
+tempfile = "3"
