@@ -1,7 +1,7 @@
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Borders};
 
-use crate::config::{rgb_to_color, ColorScheme, MenuPalette, WorldPalette};
+use crate::config::{ColorScheme, MenuPalette, WorldPalette, rgb_to_color};
 
 /// Pre-computed ratatui Colors for the menu palette. Built once per frame so
 /// each renderer doesn't repeat rgb_to_color conversions.

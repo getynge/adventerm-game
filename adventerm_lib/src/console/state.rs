@@ -11,7 +11,7 @@ use log::Level;
 
 use crate::GameState;
 
-use super::command::{find as find_command, DevCtx};
+use super::command::{DevCtx, find as find_command};
 use super::complete::Completion;
 use super::parse::tokenize;
 

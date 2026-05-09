@@ -1,7 +1,7 @@
 use crate::enemies::{self, EnemyTickOutcome};
 use crate::event::EventBus;
 use crate::events::PlayerMoved;
-use crate::game::{GameState, ENEMY_RNG_SALT};
+use crate::game::{ENEMY_RNG_SALT, GameState};
 use crate::registry::{EventHandler, Registry};
 
 /// Subscribes to [`PlayerMoved`]. Each player step kicks one enemy AI tick
@@ -27,10 +27,7 @@ pub fn register(reg: &mut Registry) {
 /// engaging enemy entity if the tick produced an encounter. Per-enemy
 /// position changes and engagements are emitted into `bus` as typed
 /// [`crate::events::EnemyMoved`] / [`crate::events::EnemyEngaged`] events.
-pub fn tick_current_room(
-    game: &mut GameState,
-    bus: &mut EventBus,
-) -> Option<crate::ecs::EntityId> {
+pub fn tick_current_room(game: &mut GameState, bus: &mut EventBus) -> Option<crate::ecs::EntityId> {
     let player_pos = game.player.position();
     let room_id = game.current_room;
     let seed = game.dungeon.seed;

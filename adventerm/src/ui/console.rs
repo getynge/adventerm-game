@@ -5,9 +5,9 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph};
 
-use crate::console::log_sink::{snapshot, LogEntry};
 use crate::console::ConsoleState;
-use crate::ui::colors::{menu_block, MenuColors};
+use crate::console::log_sink::{LogEntry, snapshot};
+use crate::ui::colors::{MenuColors, menu_block};
 use crate::ui::layout::{
     CONSOLE_HORIZONTAL_MARGIN, CONSOLE_INPUT_ROWS, CONSOLE_MIN_HEIGHT, CONSOLE_MIN_WIDTH,
     CONSOLE_VERTICAL_MARGIN,
@@ -69,24 +69,17 @@ fn render_log(frame: &mut Frame, area: Rect, colors: &MenuColors) {
 
 fn log_line(entry: &LogEntry, colors: &MenuColors) -> Line<'static> {
     let (level_text, level_style) = match entry.level {
-        Level::Error => ("ERROR ", Style::default().fg(Color::Red).bg(colors.background)),
+        Level::Error => (
+            "ERROR ",
+            Style::default().fg(Color::Red).bg(colors.background),
+        ),
         Level::Warn => (
             "WARN  ",
             Style::default().fg(Color::Yellow).bg(colors.background),
         ),
         Level::Info => ("INFO  ", colors.body_style()),
-        Level::Debug => (
-            "DEBUG ",
-            colors
-                .body_style()
-                .add_modifier(Modifier::DIM),
-        ),
-        Level::Trace => (
-            "TRACE ",
-            colors
-                .body_style()
-                .add_modifier(Modifier::DIM),
-        ),
+        Level::Debug => ("DEBUG ", colors.body_style().add_modifier(Modifier::DIM)),
+        Level::Trace => ("TRACE ", colors.body_style().add_modifier(Modifier::DIM)),
     };
     Line::from(vec![
         Span::styled(level_text.to_string(), level_style),

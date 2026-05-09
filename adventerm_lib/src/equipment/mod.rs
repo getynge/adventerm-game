@@ -11,7 +11,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::items::{behavior_for, EquipEffect, EquipSlot, ItemKind};
+use crate::items::{EquipEffect, EquipSlot, ItemKind, behavior_for};
 
 /// Per-player worn-item state. Default = nothing equipped.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]

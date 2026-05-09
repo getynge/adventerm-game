@@ -27,7 +27,11 @@ impl ItemBehavior for ScrollOfFireBehavior {
             return None;
         }
         ctx.abilities.active_slots[slot] = Some(AbilityKind::Fireball);
-        if !ctx.abilities.learned_active.contains(&AbilityKind::Fireball) {
+        if !ctx
+            .abilities
+            .learned_active
+            .contains(&AbilityKind::Fireball)
+        {
             ctx.abilities.learned_active.push(AbilityKind::Fireball);
         }
         Some(ConsumeOutcome::LearnedAbility {

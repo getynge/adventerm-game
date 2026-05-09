@@ -62,7 +62,10 @@ pub fn line(
 
     match accel {
         Some(idx) => {
-            let accel_char = label[idx..].chars().next().expect("accelerator index in label");
+            let accel_char = label[idx..]
+                .chars()
+                .next()
+                .expect("accelerator index in label");
             let after_idx = idx + accel_char.len_utf8();
             let before = &label[..idx];
             let after = &label[after_idx..];

@@ -3,12 +3,12 @@ use ratatui::layout::{Alignment, Constraint, Layout};
 use ratatui::text::Line;
 use ratatui::widgets::{Clear, Paragraph};
 
-use crate::app::{options_advanced_row_label, App};
+use crate::app::{App, options_advanced_row_label};
 use crate::menu::{MenuState, OptionsAdvancedRow};
 use crate::ui::accel;
-use crate::ui::colors::{menu_block, MenuColors};
+use crate::ui::colors::{MenuColors, menu_block};
 use crate::ui::layout::{
-    popup_rect, PANEL_HORIZONTAL_PAD, PANEL_MIN_HEIGHT, PANEL_MIN_WIDTH, PANEL_VERTICAL_PAD,
+    PANEL_HORIZONTAL_PAD, PANEL_MIN_HEIGHT, PANEL_MIN_WIDTH, PANEL_VERTICAL_PAD, popup_rect,
 };
 
 pub fn render(

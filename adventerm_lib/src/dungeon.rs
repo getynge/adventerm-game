@@ -9,9 +9,9 @@ use std::collections::{HashMap, VecDeque};
 
 use crate::ecs::World;
 use crate::enemies::EnemyKind;
-use crate::items::random::random_item_kind;
 #[cfg(test)]
 use crate::items::ItemKind;
+use crate::items::random::random_item_kind;
 use crate::rng::Rng;
 use crate::room::{DoorId, Room, RoomId, TileKind};
 
@@ -343,7 +343,9 @@ fn place_wall_lights(room: &mut Room, rng: &mut Rng) {
     if candidates.is_empty() {
         return;
     }
-    let count = rng.range(WALL_LIGHT_COUNT_MIN, WALL_LIGHT_COUNT_MAX_EXCL).min(candidates.len());
+    let count = rng
+        .range(WALL_LIGHT_COUNT_MIN, WALL_LIGHT_COUNT_MAX_EXCL)
+        .min(candidates.len());
     for _ in 0..count {
         let pick = candidates[rng.range(0, candidates.len())];
         room.lighting.add_torch(&mut room.world, pick);
@@ -567,10 +569,7 @@ mod tests {
         let d = Dungeon::generate(42);
         for room in &d.rooms {
             for (pos, _) in room.lighting.iter_sources(&room.world) {
-                assert!(matches!(
-                    room.kind_at(pos.0, pos.1),
-                    Some(TileKind::Wall)
-                ));
+                assert!(matches!(room.kind_at(pos.0, pos.1), Some(TileKind::Wall)));
             }
         }
     }
@@ -601,10 +600,7 @@ mod tests {
         let d = Dungeon::generate(42);
         for room in &d.rooms {
             for pos in room.items.positions(&room.world) {
-                assert!(matches!(
-                    room.kind_at(pos.0, pos.1),
-                    Some(TileKind::Floor)
-                ));
+                assert!(matches!(room.kind_at(pos.0, pos.1), Some(TileKind::Floor)));
             }
         }
     }
@@ -625,7 +621,10 @@ mod tests {
         assert!(total > 0);
         // 2/5 == 40% target — comfortably under 50%.
         let fraction = with_light as f32 / total as f32;
-        assert!(fraction < 0.5, "expected < 50% rooms with lights, got {fraction}");
+        assert!(
+            fraction < 0.5,
+            "expected < 50% rooms with lights, got {fraction}"
+        );
     }
 
     #[test]
@@ -678,10 +677,7 @@ mod tests {
         let d = Dungeon::generate(2027);
         for room in &d.rooms {
             for (_, pos, _) in room.enemies.iter_with_pos(&room.world) {
-                assert!(matches!(
-                    room.kind_at(pos.0, pos.1),
-                    Some(TileKind::Floor)
-                ));
+                assert!(matches!(room.kind_at(pos.0, pos.1), Some(TileKind::Floor)));
             }
         }
     }

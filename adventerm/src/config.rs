@@ -71,9 +71,11 @@ impl NamedKey {
             "PageUp" => Some(NamedKey::PageUp),
             "PageDown" => Some(NamedKey::PageDown),
             "Insert" => Some(NamedKey::Insert),
-            other if other.starts_with('F') => {
-                other[1..].parse::<u8>().ok().filter(|n| (1..=12).contains(n)).map(NamedKey::F)
-            }
+            other if other.starts_with('F') => other[1..]
+                .parse::<u8>()
+                .ok()
+                .filter(|n| (1..=12).contains(n))
+                .map(NamedKey::F),
             _ => None,
         }
     }
@@ -462,7 +464,10 @@ mod tests {
         assert_eq!(binds.lookup(&KeyCode::Char('w')), Some(BoundAction::Up));
         assert_eq!(binds.lookup(&KeyCode::Char('W')), Some(BoundAction::Up));
         assert_eq!(binds.lookup(&KeyCode::Enter), Some(BoundAction::Confirm));
-        assert_eq!(binds.lookup(&KeyCode::Char(' ')), Some(BoundAction::Confirm));
+        assert_eq!(
+            binds.lookup(&KeyCode::Char(' ')),
+            Some(BoundAction::Confirm)
+        );
         assert_eq!(binds.lookup(&KeyCode::Esc), Some(BoundAction::Escape));
         assert_eq!(binds.lookup(&KeyCode::Char('z')), None);
     }

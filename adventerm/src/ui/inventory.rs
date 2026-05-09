@@ -6,7 +6,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph};
 
 use crate::menu::{InventoryTab, ItemsFocus, PendingConsume, PendingIntent};
-use crate::ui::colors::{menu_block, MenuColors};
+use crate::ui::colors::{MenuColors, menu_block};
 
 /// Target popup size: ~50% of the frame, clamped so it stays readable on
 /// small terminals and doesn't dominate large ones.
@@ -22,8 +22,9 @@ const TAB_HEADER_HEIGHT: u16 = 2;
 /// Width of the equipment sidebar inside the Items tab body.
 const EQUIPMENT_SIDEBAR_WIDTH: u16 = 22;
 
-/// Hint shown along the bottom of every tab.
-const HINT: &str = "Tab: switch    Enter: use    Esc: close";
+/// Hints shown along the bottom of inventory tabs.
+const ITEMS_HINT: &str = "Tab: tabs    Left/Right: pane    Enter: use    Esc: close";
+const TAB_HINT: &str = "Tab: tabs    Esc: close";
 const PENDING_CONSUME_HINT: &str = "↑/↓: pick slot    Enter: confirm    Esc: cancel";
 
 #[allow(clippy::too_many_arguments)]
@@ -50,11 +51,8 @@ pub fn render(
         return;
     }
 
-    let [header, body] = Layout::vertical([
-        Constraint::Length(TAB_HEADER_HEIGHT),
-        Constraint::Min(0),
-    ])
-    .areas(inner);
+    let [header, body] =
+        Layout::vertical([Constraint::Length(TAB_HEADER_HEIGHT), Constraint::Min(0)]).areas(inner);
 
     render_tab_header(frame, tab, header, colors);
 
@@ -105,14 +103,18 @@ fn render_items(
     colors: &MenuColors,
 ) {
     let sidebar_w = EQUIPMENT_SIDEBAR_WIDTH.min(area.width.saturating_sub(1));
-    let [list_area, sidebar_area] = Layout::horizontal([
-        Constraint::Min(0),
-        Constraint::Length(sidebar_w),
-    ])
-    .areas(area);
+    let [list_area, sidebar_area] =
+        Layout::horizontal([Constraint::Min(0), Constraint::Length(sidebar_w)]).areas(area);
 
     render_items_list(frame, game, focus, item_cursor, list_area, colors);
-    render_equipment_sidebar(frame, game.equipment(), focus, equipment_cursor, sidebar_area, colors);
+    render_equipment_sidebar(
+        frame,
+        game.equipment(),
+        focus,
+        equipment_cursor,
+        sidebar_area,
+        colors,
+    );
 }
 
 fn render_items_list(
@@ -141,7 +143,7 @@ fn render_items_list(
             )));
         }
     }
-    push_hint(&mut lines, colors, HINT);
+    push_hint(&mut lines, colors, ITEMS_HINT);
     frame.render_widget(
         Paragraph::new(lines)
             .alignment(Alignment::Left)
@@ -250,7 +252,7 @@ fn render_abilities(
     let hint = if pending_consume.is_some() {
         PENDING_CONSUME_HINT
     } else {
-        HINT
+        TAB_HINT
     };
     push_hint(&mut lines, colors, hint);
     frame.render_widget(
@@ -312,7 +314,7 @@ fn render_stats(frame: &mut Frame, game: &GameState, area: Rect, colors: &MenuCo
             colors.body_style(),
         )),
         Line::from(""),
-        Line::from(Span::styled(HINT, hint_style(colors))),
+        Line::from(Span::styled(TAB_HINT, hint_style(colors))),
     ];
     frame.render_widget(
         Paragraph::new(lines)
@@ -350,7 +352,10 @@ fn short_name(kind: ItemKind) -> String {
 
 fn push_hint(lines: &mut Vec<Line>, colors: &MenuColors, hint: &str) {
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(hint.to_string(), hint_style(colors))));
+    lines.push(Line::from(Span::styled(
+        hint.to_string(),
+        hint_style(colors),
+    )));
 }
 
 fn hint_style(colors: &MenuColors) -> Style {
@@ -373,4 +378,3 @@ fn popup_rect(area: Rect) -> Rect {
         height: target_h,
     }
 }
-

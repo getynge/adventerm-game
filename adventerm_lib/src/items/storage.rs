@@ -12,12 +12,7 @@ pub struct ItemSubsystem {
 }
 
 impl ItemSubsystem {
-    pub fn spawn_at(
-        &mut self,
-        world: &mut World,
-        pos: (usize, usize),
-        kind: ItemKind,
-    ) -> EntityId {
+    pub fn spawn_at(&mut self, world: &mut World, pos: (usize, usize), kind: ItemKind) -> EntityId {
         let e = world.spawn();
         world.set_position(e, pos);
         self.kinds.insert(e, kind);

@@ -65,8 +65,14 @@ pub fn tokenize(input: &str) -> Vec<Token> {
 ///   typed will start a new token. `args` is what is already complete.
 #[derive(Debug, PartialEq, Eq)]
 pub enum InputPosition {
-    Inside { tokens: Vec<Token>, partial: String, partial_quoted: bool },
-    Boundary { tokens: Vec<Token> },
+    Inside {
+        tokens: Vec<Token>,
+        partial: String,
+        partial_quoted: bool,
+    },
+    Boundary {
+        tokens: Vec<Token>,
+    },
 }
 
 /// Inspect input and report whether the user is mid-token or at a boundary.
@@ -122,10 +128,7 @@ mod tests {
 
     #[test]
     fn bare_tokens() {
-        assert_eq!(
-            tokenize("give torch"),
-            vec![bare("give"), bare("torch")]
-        );
+        assert_eq!(tokenize("give torch"), vec![bare("give"), bare("torch")]);
     }
 
     #[test]

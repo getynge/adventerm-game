@@ -8,9 +8,9 @@ use serde::{Deserialize, Serialize};
 use crate::ecs::{ComponentStore, EntityId, World};
 use crate::stats::Stats;
 
-pub use ai::{enemy_behavior_for, AiAction, AiCtx, EnemyAi};
+pub use ai::{AiAction, AiCtx, EnemyAi, enemy_behavior_for};
 pub use kind::EnemyKind;
-pub use movement::{tick_enemies, EnemyTickOutcome};
+pub use movement::{EnemyTickOutcome, tick_enemies};
 
 /// Per-room subsystem owning enemies as entities. Each enemy entity carries:
 /// - a `Position` (managed by `World`)
@@ -77,9 +77,9 @@ impl Enemies {
         &'a self,
         world: &'a World,
     ) -> impl Iterator<Item = (EntityId, (usize, usize), EnemyKind)> + 'a {
-        self.kinds.iter().filter_map(move |(e, kind)| {
-            world.position_of(e).map(|pos| (e, pos, *kind))
-        })
+        self.kinds
+            .iter()
+            .filter_map(move |(e, kind)| world.position_of(e).map(|pos| (e, pos, *kind)))
     }
 
     pub fn entities(&self) -> impl Iterator<Item = EntityId> + '_ {

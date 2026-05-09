@@ -17,4 +17,4 @@ pub mod enemy_tick;
 pub mod visibility;
 
 pub use enemy_tick::EnemyTickHandler;
-pub use visibility::{refresh_visibility, VisibilityHandler};
+pub use visibility::{VisibilityHandler, refresh_visibility};

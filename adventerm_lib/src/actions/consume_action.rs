@@ -3,7 +3,7 @@ use crate::ecs::EntityId;
 use crate::event::EventBus;
 use crate::events::ItemConsumed;
 use crate::game::GameState;
-use crate::items::{behavior_for, ConsumeCtx, ConsumeOutcome, ConsumeTarget};
+use crate::items::{ConsumeCtx, ConsumeOutcome, ConsumeTarget, behavior_for};
 
 /// "Consume the inventory item at `inventory_slot` with the supplied
 /// targeting payload." The behavior decides whether `target` is the right
@@ -85,11 +85,16 @@ mod tests {
             })
         );
         assert!(state.inventory().is_empty());
-        assert_eq!(state.abilities().active_slots[0], Some(AbilityKind::Fireball));
-        assert!(state
-            .abilities()
-            .learned_active
-            .contains(&AbilityKind::Fireball));
+        assert_eq!(
+            state.abilities().active_slots[0],
+            Some(AbilityKind::Fireball)
+        );
+        assert!(
+            state
+                .abilities()
+                .learned_active
+                .contains(&AbilityKind::Fireball)
+        );
     }
 
     #[test]

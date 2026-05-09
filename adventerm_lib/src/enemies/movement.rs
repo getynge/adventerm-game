@@ -1,5 +1,5 @@
 use crate::ecs::EntityId;
-use crate::enemies::ai::{enemy_behavior_for, AiAction, AiCtx};
+use crate::enemies::ai::{AiAction, AiCtx, enemy_behavior_for};
 use crate::event::EventBus;
 use crate::events::{EnemyEngaged, EnemyMoved};
 use crate::rng::Rng;
@@ -48,9 +48,11 @@ pub fn tick_enemies(
                 room,
                 rng,
             };
-            enemy_behavior_for(room.enemies.kind_of(entity).unwrap_or_else(|| {
-                unreachable!("enemy entity without kind")
-            }))
+            enemy_behavior_for(
+                room.enemies
+                    .kind_of(entity)
+                    .unwrap_or_else(|| unreachable!("enemy entity without kind")),
+            )
             .decide(&mut ctx)
         };
 
@@ -108,7 +110,10 @@ fn step_destination(
         return None;
     }
     let pos = (target.0 as usize, target.1 as usize);
-    if !matches!(room.kind_at(pos.0, pos.1), Some(crate::room::TileKind::Floor)) {
+    if !matches!(
+        room.kind_at(pos.0, pos.1),
+        Some(crate::room::TileKind::Floor)
+    ) {
         return None;
     }
     if pos == player_pos {

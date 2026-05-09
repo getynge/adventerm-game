@@ -2,6 +2,7 @@
 //! types. Every shape here is `Copy` so values cross the FFI boundary by
 //! value; pointers into handle interiors are never returned.
 
+use adventerm_lib::Equipment;
 use adventerm_lib::battle::{BattleTurn, Combatants, HpSnapshot};
 use adventerm_lib::dungeon::DoorView;
 use adventerm_lib::game::{DoorEvent, MoveOutcome};
@@ -9,11 +10,8 @@ use adventerm_lib::items::{ConsumeOutcome, ConsumeTarget, EquipEffect};
 use adventerm_lib::lighting::{FlareSource, LightSource};
 use adventerm_lib::room::TileKind;
 use adventerm_lib::stats::Stats;
-use adventerm_lib::Equipment;
 
-use crate::enums::{
-    CAbilityKind, CAttribute, CBattleResult, CDoorState, CEnemyKind, CItemKind,
-};
+use crate::enums::{CAbilityKind, CAttribute, CBattleResult, CDoorState, CEnemyKind, CItemKind};
 use crate::error::FfiError;
 
 const CTILE_KIND_WALL: u8 = 0;

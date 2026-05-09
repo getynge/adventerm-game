@@ -2,10 +2,10 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use adventerm_lib::{
-    battle, category_of, consume_intent_of, dispatch, save, Battle, BattleResult, BattleTurn,
-    ConsumeIntent, ConsumeItemAction, ConsumeTarget, DefeatEnemyAction, Direction, EquipItemAction,
-    EquipSlot, GameState, InteractAction, ItemCategory, MoveAction, MoveOutcome, PickUpAction,
-    PlaceItemAction, QuickMoveAction, Save, SaveSlot, UnequipItemAction,
+    Battle, BattleResult, BattleTurn, ConsumeIntent, ConsumeItemAction, ConsumeTarget,
+    DefeatEnemyAction, Direction, EquipItemAction, EquipSlot, GameState, InteractAction,
+    ItemCategory, MoveAction, MoveOutcome, PickUpAction, PlaceItemAction, QuickMoveAction, Save,
+    SaveSlot, UnequipItemAction, battle, category_of, consume_intent_of, dispatch, save,
 };
 use crossterm::event::{Event, KeyCode, KeyEventKind};
 
@@ -195,8 +195,7 @@ impl App {
             return;
         }
         let console_enabled = self.config.dev_console_enabled();
-        let Some(action) =
-            crate::input::translate(event, &self.config.keybinds, console_enabled)
+        let Some(action) = crate::input::translate(event, &self.config.keybinds, console_enabled)
         else {
             return;
         };
@@ -255,7 +254,11 @@ impl App {
             }
             _ => {}
         }
-        let Screen::DeveloperConsole { underlying, console } = &mut self.screen else {
+        let Screen::DeveloperConsole {
+            underlying,
+            console,
+        } = &mut self.screen
+        else {
             return;
         };
         match action {
@@ -435,10 +438,9 @@ impl App {
                 self.persist_config();
             }
             OptionsRow::Keybind(action) => {
-                let Screen::Options { menu, status } = std::mem::replace(
-                    &mut self.screen,
-                    Screen::Quit,
-                ) else {
+                let Screen::Options { menu, status } =
+                    std::mem::replace(&mut self.screen, Screen::Quit)
+                else {
                     return;
                 };
                 self.screen = Screen::RebindCapture {
@@ -757,7 +759,10 @@ impl App {
                 _ => {}
             },
             BattleTurn::Enemy => {
-                if matches!(action, Action::Confirm | Action::Up | Action::Down | Action::Escape) {
+                if matches!(
+                    action,
+                    Action::Confirm | Action::Up | Action::Down | Action::Escape
+                ) {
                     battle::apply_enemy_turn(game, battle);
                 }
             }
@@ -805,9 +810,7 @@ impl App {
         // Pending-consume substate hijacks navigation: the user is locked
         // into the abilities tab picking a slot until they confirm or
         // cancel. Resolves before the regular tab/cursor routing.
-        if matches!(action, Action::Confirm | Action::Escape | Action::Up | Action::Down)
-            && self.has_pending_consume()
-        {
+        if self.has_pending_consume() {
             self.handle_inventory_pending_consume(action);
             return;
         }
@@ -825,20 +828,17 @@ impl App {
             return;
         };
         match (action, *tab) {
-            (Action::Inventory, InventoryTab::Items) if *items_focus == ItemsFocus::List => {
-                *items_focus = ItemsFocus::Sidebar;
-            }
-            (Action::Inventory, InventoryTab::Items) => {
-                // Sidebar focus → advance to the next tab; reset focus
-                // when we return to Items so List is the default.
-                *items_focus = ItemsFocus::List;
-                *tab = tab.next();
-            }
             (Action::Inventory, _) => {
                 *tab = tab.next();
                 if *tab == InventoryTab::Items {
                     *items_focus = ItemsFocus::List;
                 }
+            }
+            (Action::Left, InventoryTab::Items) => {
+                *items_focus = ItemsFocus::List;
+            }
+            (Action::Right, InventoryTab::Items) => {
+                *items_focus = ItemsFocus::Sidebar;
             }
             (Action::Escape, _) => {
                 let Screen::Inventory { game, .. } =
@@ -1321,8 +1321,119 @@ pub fn options_advanced_row_label(config: &Config, row: OptionsAdvancedRow) -> S
     match row {
         OptionsAdvancedRow::DevConsole => format!(
             "Developer Console: {}",
-            if config.dev_console_enabled() { "On" } else { "Off" }
+            if config.dev_console_enabled() {
+                "On"
+            } else {
+                "Off"
+            }
         ),
         OptionsAdvancedRow::Back => "Back".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use adventerm_lib::ItemKind;
+
+    use super::*;
+
+    fn inventory_app(
+        tab: InventoryTab,
+        items_focus: ItemsFocus,
+        pending_consume: Option<PendingConsume>,
+    ) -> App {
+        let save_dir = PathBuf::from("/tmp/adventerm-inventory-test");
+        App {
+            screen: Screen::Inventory {
+                game: GameState::new_seeded(7),
+                tab,
+                items_focus,
+                item_cursor: 0,
+                equipment_cursor: 0,
+                ability_cursor: 0,
+                pending_consume,
+                status: Status::None,
+            },
+            config_path: config::config_path_for(&save_dir),
+            scheme_registry: SchemeRegistry::load(&save_dir),
+            save_dir,
+            config: Config::default(),
+            any_saves: false,
+        }
+    }
+
+    fn inventory_screen(app: &App) -> (InventoryTab, ItemsFocus, Option<PendingConsume>) {
+        let Screen::Inventory {
+            tab,
+            items_focus,
+            pending_consume,
+            ..
+        } = app.screen()
+        else {
+            panic!("expected inventory screen");
+        };
+        (*tab, *items_focus, *pending_consume)
+    }
+
+    #[test]
+    fn inventory_tab_key_cycles_only_top_level_tabs() {
+        let mut app = inventory_app(InventoryTab::Items, ItemsFocus::List, None);
+
+        app.handle_inventory(Action::Inventory);
+        assert_eq!(
+            inventory_screen(&app),
+            (InventoryTab::Abilities, ItemsFocus::List, None)
+        );
+
+        app.handle_inventory(Action::Inventory);
+        assert_eq!(
+            inventory_screen(&app),
+            (InventoryTab::Stats, ItemsFocus::List, None)
+        );
+
+        app.handle_inventory(Action::Inventory);
+        assert_eq!(
+            inventory_screen(&app),
+            (InventoryTab::Items, ItemsFocus::List, None)
+        );
+    }
+
+    #[test]
+    fn inventory_left_right_switch_items_panes_without_changing_tabs() {
+        let mut app = inventory_app(InventoryTab::Items, ItemsFocus::List, None);
+
+        app.handle_inventory(Action::Right);
+        assert_eq!(
+            inventory_screen(&app),
+            (InventoryTab::Items, ItemsFocus::Sidebar, None)
+        );
+
+        app.handle_inventory(Action::Left);
+        assert_eq!(
+            inventory_screen(&app),
+            (InventoryTab::Items, ItemsFocus::List, None)
+        );
+    }
+
+    #[test]
+    fn pending_consume_ignores_tab_and_pane_navigation() {
+        let pending = PendingConsume {
+            inventory_slot: 0,
+            kind: ItemKind::ScrollOfFire,
+            intent: PendingIntent::AbilitySlot,
+        };
+        let mut app = inventory_app(InventoryTab::Abilities, ItemsFocus::List, Some(pending));
+
+        app.handle_inventory(Action::Inventory);
+        assert_eq!(
+            inventory_screen(&app),
+            (InventoryTab::Abilities, ItemsFocus::List, Some(pending))
+        );
+
+        app.handle_inventory(Action::Right);
+        assert_eq!(
+            inventory_screen(&app),
+            (InventoryTab::Abilities, ItemsFocus::List, Some(pending))
+        );
     }
 }

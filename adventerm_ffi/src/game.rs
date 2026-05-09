@@ -81,10 +81,7 @@ pub extern "C" fn game_set_cur_health(handle: *mut GameHandle, hp: u8) -> i32 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn game_vision_radius(
-    handle: *const GameHandle,
-    out_radius: *mut usize,
-) -> i32 {
+pub extern "C" fn game_vision_radius(handle: *const GameHandle, out_radius: *mut usize) -> i32 {
     ffi_try!({
         let Some(h) = (unsafe { handle.as_ref() }) else {
             return FfiError::NullArgument as i32;

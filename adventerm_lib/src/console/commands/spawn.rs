@@ -60,9 +60,7 @@ impl DevCommand for SpawnCommand {
                     ItemKind::from_display_name(name)
                         .ok_or_else(|| format!("unknown item {name:?}"))?
                 } else {
-                    let rng = game
-                        .player
-                        .enemy_rng_mut(game.dungeon.seed, ENEMY_RNG_SALT);
+                    let rng = game.player.enemy_rng_mut(game.dungeon.seed, ENEMY_RNG_SALT);
                     random_item_kind(rng)
                 };
                 spawn_item_at_player(game, kind);

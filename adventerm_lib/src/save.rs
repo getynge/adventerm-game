@@ -32,10 +32,9 @@ impl std::fmt::Display for SaveError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SaveError::Format(e) => write!(f, "save format error: {e}"),
-            SaveError::UnsupportedVersion { found, expected } => write!(
-                f,
-                "unsupported save version {found} (expected {expected})"
-            ),
+            SaveError::UnsupportedVersion { found, expected } => {
+                write!(f, "unsupported save version {found} (expected {expected})")
+            }
         }
     }
 }

@@ -5,8 +5,8 @@ pub mod passive;
 
 use serde::{Deserialize, Serialize};
 
-pub use active::{ability_behavior_for, AbilityCtx, AbilityOutcome, ActiveAbility};
-pub use passive::{passive_behavior_for, PassiveAbility};
+pub use active::{AbilityCtx, AbilityOutcome, ActiveAbility, ability_behavior_for};
+pub use passive::{PassiveAbility, passive_behavior_for};
 
 /// Number of equipped active-ability slots. The player can fill any slot with
 /// any ability they have learned.

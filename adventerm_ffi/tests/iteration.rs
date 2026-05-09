@@ -3,16 +3,16 @@
 //! buffer-too-small contract is checked separately.
 
 use adventerm_ffi::{
+    CDoorView, CEnemyView, CEquipmentSnapshot, CItemKind, CTileKind, FfiError, GameHandle,
     game_abilities_active_copy, game_abilities_learned_active_copy,
     game_abilities_learned_active_len, game_current_room, game_equipment_snapshot, game_free,
     game_inventory_copy, game_inventory_len, game_new_seeded, game_room_dimensions,
     game_room_kind_at, game_room_walkable, room_door_at, room_doors_count, room_enemies_count,
-    room_enemy_at, room_item_at, room_items_at_count, CDoorView, CEnemyView, CEquipmentSnapshot,
-    CItemKind, CTileKind, FfiError, GameHandle,
+    room_enemy_at, room_item_at, room_items_at_count,
 };
+use adventerm_lib::GameState;
 use adventerm_lib::abilities::ABILITY_SLOTS;
 use adventerm_lib::room::{RoomId, TileKind};
-use adventerm_lib::GameState;
 
 const SEED: u64 = 42;
 

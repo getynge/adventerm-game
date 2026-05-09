@@ -9,7 +9,12 @@ use adventerm_ffi::{
 #[test]
 fn directions_round_trip() {
     use adventerm_lib::Direction;
-    for d in [Direction::Up, Direction::Down, Direction::Left, Direction::Right] {
+    for d in [
+        Direction::Up,
+        Direction::Down,
+        Direction::Left,
+        Direction::Right,
+    ] {
         let c: CDirection = d.into();
         assert_eq!(CDirection::try_from(c as u8).unwrap(), c);
         let back: Direction = c.into();
@@ -90,7 +95,11 @@ fn ability_kinds_round_trip() {
 #[test]
 fn battle_results_round_trip() {
     use adventerm_lib::BattleResult;
-    for r in [BattleResult::Victory, BattleResult::Defeat, BattleResult::Fled] {
+    for r in [
+        BattleResult::Victory,
+        BattleResult::Defeat,
+        BattleResult::Fled,
+    ] {
         let c: CBattleResult = r.into();
         assert_eq!(CBattleResult::try_from(c as u8).unwrap(), c);
         let back: BattleResult = c.into();
@@ -123,9 +132,18 @@ fn consume_intents_round_trip() {
 #[test]
 fn door_states_collapse_struct_to_enum() {
     use adventerm_lib::dungeon::DoorState;
-    let open = DoorState { open: true, locked: false };
-    let closed = DoorState { open: false, locked: false };
-    let locked = DoorState { open: true, locked: true };
+    let open = DoorState {
+        open: true,
+        locked: false,
+    };
+    let closed = DoorState {
+        open: false,
+        locked: false,
+    };
+    let locked = DoorState {
+        open: true,
+        locked: true,
+    };
     assert_eq!(CDoorState::from(open), CDoorState::Open);
     assert_eq!(CDoorState::from(closed), CDoorState::Closed);
     assert_eq!(CDoorState::from(locked), CDoorState::Locked);

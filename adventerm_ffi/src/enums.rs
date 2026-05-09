@@ -5,6 +5,7 @@
 //! reverse for FFI inputs and rejects unknown discriminants with
 //! [`crate::FfiError::OutOfRange`].
 
+use adventerm_lib::ItemKind;
 use adventerm_lib::abilities::{AbilityKind, PassiveKind};
 use adventerm_lib::battle::BattleResult;
 use adventerm_lib::dungeon::DoorState;
@@ -14,7 +15,6 @@ use adventerm_lib::items::{ConsumeIntent, EquipSlot};
 use adventerm_lib::registry::ActorKind;
 use adventerm_lib::stats::Attribute;
 use adventerm_lib::world::{Direction, Tile};
-use adventerm_lib::ItemKind;
 
 use crate::error::FfiError;
 

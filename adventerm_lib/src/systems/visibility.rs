@@ -100,13 +100,25 @@ mod tests {
     fn equipping_goggles_widens_visible_disc() {
         let mut game = GameState::new_seeded(11);
         refresh_visibility(&mut game);
-        let baseline = game.player.visibility().visible.iter().filter(|v| **v).count();
+        let baseline = game
+            .player
+            .visibility()
+            .visible
+            .iter()
+            .filter(|v| **v)
+            .count();
 
         game.player
             .equipment_mut()
             .equip(EquipSlot::Head, ItemKind::Goggles);
         refresh_visibility(&mut game);
-        let widened = game.player.visibility().visible.iter().filter(|v| **v).count();
+        let widened = game
+            .player
+            .visibility()
+            .visible
+            .iter()
+            .filter(|v| **v)
+            .count();
         assert!(
             widened > baseline,
             "goggles should reveal more tiles (baseline={baseline}, widened={widened})"
@@ -123,7 +135,12 @@ mod tests {
         game.set_fullbright(true);
         refresh_visibility(&mut game);
         assert_eq!(
-            game.player.visibility().visible.iter().filter(|v| **v).count(),
+            game.player
+                .visibility()
+                .visible
+                .iter()
+                .filter(|v| **v)
+                .count(),
             total
         );
         assert_eq!(
@@ -134,7 +151,13 @@ mod tests {
         game.set_fullbright(false);
         refresh_visibility(&mut game);
         assert!(
-            game.player.visibility().visible.iter().filter(|v| **v).count() < total,
+            game.player
+                .visibility()
+                .visible
+                .iter()
+                .filter(|v| **v)
+                .count()
+                < total,
             "disabling fullbright should restore LOS-bounded visibility"
         );
     }

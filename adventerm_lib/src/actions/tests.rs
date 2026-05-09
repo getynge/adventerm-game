@@ -11,7 +11,7 @@ use crate::event::EventBus;
 use crate::events::{DoorTraversed, ItemEquipped, ItemPlaced, ItemUnequipped, PlayerMoved};
 use crate::game::{GameState, MoveOutcome};
 use crate::items::ItemKind;
-use crate::registry::{build_registry, ActorKind, EventHandler, Registry};
+use crate::registry::{ActorKind, EventHandler, Registry, build_registry};
 use crate::room::TileKind;
 use crate::world::Direction;
 
@@ -85,10 +85,7 @@ fn dispatch_place_item_refreshes_visibility() {
     let pos = game.player_pos();
     game.player.inventory_push(ItemKind::Torch);
     let outcome = dispatch(&mut game, player, PlaceItemAction { slot: 0 }).expect("place ok");
-    assert!(matches!(
-        outcome,
-        crate::items::PlaceOutcome::TorchPlaced
-    ));
+    assert!(matches!(outcome, crate::items::PlaceOutcome::TorchPlaced));
     assert!(game.current_room().has_light_at(pos));
     assert!(game.is_visible(pos.0, pos.1));
 }
@@ -101,8 +98,7 @@ fn dispatch_pickup_emits_picked_up() {
     let pos = game.player_pos();
     // Drop an item under the player by reaching directly into the room.
     let room = game.dungeon.room_mut(game.current_room);
-    room.items
-        .spawn_at(&mut room.world, pos, ItemKind::Torch);
+    room.items.spawn_at(&mut room.world, pos, ItemKind::Torch);
     let kind = dispatch(&mut game, player, PickUpAction).expect("picked up");
     assert_eq!(kind, ItemKind::Torch);
     assert!(game.inventory().contains(&ItemKind::Torch));
@@ -157,10 +153,7 @@ fn registry_dispatches_in_subscription_order() {
 #[test]
 fn build_registry_records_player_actions() {
     let reg = build_registry();
-    assert_eq!(
-        reg.actor_kind_for::<MoveAction>(),
-        Some(ActorKind::Player)
-    );
+    assert_eq!(reg.actor_kind_for::<MoveAction>(), Some(ActorKind::Player));
     assert_eq!(
         reg.actor_kind_for::<InteractAction>(),
         Some(ActorKind::Player)

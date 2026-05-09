@@ -69,7 +69,9 @@ impl Room {
     }
 
     pub fn has_light_at(&self, pos: (usize, usize)) -> bool {
-        self.lighting.iter_sources(&self.world).any(|(p, _)| p == pos)
+        self.lighting
+            .iter_sources(&self.world)
+            .any(|(p, _)| p == pos)
     }
 
     /// Glyph for the enemy resting at `(x, y)`, if any. The renderer reads

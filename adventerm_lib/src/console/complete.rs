@@ -6,8 +6,8 @@
 
 use crate::GameState;
 
-use super::command::{find as find_command, registry, CompletionCtx};
-use super::parse::{analyze, quote_if_needed, InputPosition, Token};
+use super::command::{CompletionCtx, find as find_command, registry};
+use super::parse::{InputPosition, Token, analyze, quote_if_needed};
 
 /// Result of a completion query.
 #[derive(Debug, Clone, Default)]
@@ -47,7 +47,8 @@ impl Completion {
     fn for_boundary(prior_tokens: &[Token], ctx: &CompletionCtx<'_>) -> Self {
         if prior_tokens.is_empty() {
             // No command typed yet; show every command name.
-            let mut candidates: Vec<String> = registry().iter().map(|c| c.name().to_string()).collect();
+            let mut candidates: Vec<String> =
+                registry().iter().map(|c| c.name().to_string()).collect();
             candidates.sort();
             return Completion {
                 candidates,

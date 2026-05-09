@@ -60,9 +60,13 @@ pub extern "C" fn game_action_move(
         let outcome = dispatch(
             &mut h.inner,
             actor,
-            MoveAction { direction: dir.into() },
+            MoveAction {
+                direction: dir.into(),
+            },
         );
-        unsafe { *out_outcome = CMoveOutcome::from(outcome); }
+        unsafe {
+            *out_outcome = CMoveOutcome::from(outcome);
+        }
         FfiError::Ok as i32
     })
 }
@@ -86,9 +90,13 @@ pub extern "C" fn game_action_quick_move(
         let outcome = dispatch(
             &mut h.inner,
             actor,
-            QuickMoveAction { direction: dir.into() },
+            QuickMoveAction {
+                direction: dir.into(),
+            },
         );
-        unsafe { *out_outcome = CMoveOutcome::from(outcome); }
+        unsafe {
+            *out_outcome = CMoveOutcome::from(outcome);
+        }
         FfiError::Ok as i32
     })
 }
@@ -167,7 +175,9 @@ pub extern "C" fn game_action_place(
         let outcome = dispatch(
             &mut h.inner,
             actor,
-            PlaceItemAction { slot: inventory_slot },
+            PlaceItemAction {
+                slot: inventory_slot,
+            },
         );
         unsafe {
             match outcome {
@@ -208,11 +218,7 @@ pub extern "C" fn game_action_equip(
             .inventory_get(inventory_slot)
             .and_then(adventerm_lib::items::equip_slot_of)
             .and_then(|slot| h.inner.player.equipment().slot(slot));
-        let equipped = dispatch(
-            &mut h.inner,
-            actor,
-            EquipItemAction { inventory_slot },
-        );
+        let equipped = dispatch(&mut h.inner, actor, EquipItemAction { inventory_slot });
         let prior = equipped.and(displaced);
         unsafe {
             match prior {
@@ -246,12 +252,10 @@ pub extern "C" fn game_action_unequip(
             Err(e) => return e as i32,
         };
         let actor = h.inner.player.entity();
-        let outcome = dispatch(
-            &mut h.inner,
-            actor,
-            UnequipItemAction { slot: slot.into() },
-        );
-        unsafe { *out_success = outcome.is_some(); }
+        let outcome = dispatch(&mut h.inner, actor, UnequipItemAction { slot: slot.into() });
+        unsafe {
+            *out_success = outcome.is_some();
+        }
         FfiError::Ok as i32
     })
 }
@@ -299,11 +303,7 @@ pub extern "C" fn game_action_consume(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn game_action_defeat_enemy(
-    handle: *mut GameHandle,
-    room: u32,
-    entity: u32,
-) -> i32 {
+pub extern "C" fn game_action_defeat_enemy(handle: *mut GameHandle, room: u32, entity: u32) -> i32 {
     ffi_try!({
         let h = handle_mut_or_null!(handle);
         let actor = h.inner.player.entity();

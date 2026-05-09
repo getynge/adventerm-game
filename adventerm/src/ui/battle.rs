@@ -5,7 +5,7 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph};
 
-use crate::ui::colors::{menu_block, MenuColors, SchemeColors};
+use crate::ui::colors::{MenuColors, SchemeColors, menu_block};
 
 /// Width of the rendered HP bar, in cells. The numeric "cur / max" suffix is
 /// printed after the bar so the bar itself can stay short on narrow terms.
@@ -63,10 +63,7 @@ fn render_header(
         .unwrap_or(battle.enemy_cur_hp());
 
     let lines = vec![
-        Line::from(Span::styled(
-            "You".to_string(),
-            colors.title_style(),
-        )),
+        Line::from(Span::styled("You".to_string(), colors.title_style())),
         Line::from(hp_spans(
             battle.player_cur_hp(),
             game.stats().health,
@@ -76,10 +73,7 @@ fn render_header(
         Line::from(Span::styled(enemy_name.to_string(), colors.title_style())),
         Line::from(hp_spans(battle.enemy_cur_hp(), enemy_max, colors)),
     ];
-    frame.render_widget(
-        Paragraph::new(lines).style(colors.body_style()),
-        area,
-    );
+    frame.render_widget(Paragraph::new(lines).style(colors.body_style()), area);
 }
 
 fn hp_spans(cur: u8, max: u8, colors: &MenuColors) -> Vec<Span<'static>> {
@@ -90,10 +84,7 @@ fn hp_spans(cur: u8, max: u8, colors: &MenuColors) -> Vec<Span<'static>> {
         Span::styled("[".to_string(), colors.body_style()),
         Span::styled("#".repeat(filled as usize), colors.cursor_style()),
         Span::styled("·".repeat(empty as usize), colors.body_style()),
-        Span::styled(
-            format!("] {} / {}", cur, max),
-            colors.body_style(),
-        ),
+        Span::styled(format!("] {} / {}", cur, max), colors.body_style()),
     ]
 }
 
@@ -132,10 +123,7 @@ fn render_actions(
             style,
         )));
     }
-    frame.render_widget(
-        Paragraph::new(lines).style(colors.body_style()),
-        area,
-    );
+    frame.render_widget(Paragraph::new(lines).style(colors.body_style()), area);
 }
 
 fn render_log(

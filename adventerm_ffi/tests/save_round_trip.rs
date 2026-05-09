@@ -9,11 +9,11 @@ use std::ffi::CString;
 use std::ptr;
 
 use adventerm_ffi::{
-    game_action_move, game_free, game_new_seeded, game_player_pos, save_delete,
-    save_format_version, save_free, save_from_bytes, save_list_count, save_list_free,
-    save_list_modified_unix, save_list_name, save_list_open, save_list_path, save_name,
-    save_new_from_game, save_slot_path, save_slugify, save_to_bytes, save_to_game,
-    save_version, CDirection, CMoveOutcome, FfiError, GameHandle, SaveHandle, SaveListing,
+    CDirection, CMoveOutcome, FfiError, GameHandle, SaveHandle, SaveListing, game_action_move,
+    game_free, game_new_seeded, game_player_pos, save_delete, save_format_version, save_free,
+    save_from_bytes, save_list_count, save_list_free, save_list_modified_unix, save_list_name,
+    save_list_open, save_list_path, save_name, save_new_from_game, save_slot_path, save_slugify,
+    save_to_bytes, save_to_game, save_version,
 };
 
 /// Construct a `SaveHandle` from a fresh seeded game named `name`.
@@ -133,10 +133,7 @@ fn save_from_bytes_unsupported_version() {
     let rc = save_from_bytes(bad.as_ptr(), bad.len(), &mut out);
     // Either SaveFormat (deserialization fails first because state schema)
     // or UnsupportedSaveVersion (if serde accepts and version check fires).
-    assert!(
-        rc == FfiError::SaveFormat as i32
-            || rc == FfiError::UnsupportedSaveVersion as i32
-    );
+    assert!(rc == FfiError::SaveFormat as i32 || rc == FfiError::UnsupportedSaveVersion as i32);
     assert!(out.is_null());
 }
 
@@ -172,13 +169,7 @@ fn save_slot_path_matches_lib() {
     let name = CString::new("Hero").unwrap();
     let mut needed = 0usize;
     assert_eq!(
-        save_slot_path(
-            dir.as_ptr(),
-            name.as_ptr(),
-            ptr::null_mut(),
-            0,
-            &mut needed,
-        ),
+        save_slot_path(dir.as_ptr(), name.as_ptr(), ptr::null_mut(), 0, &mut needed,),
         FfiError::BufferTooSmall as i32
     );
     let mut buf = vec![0u8; needed];

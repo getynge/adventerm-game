@@ -65,7 +65,8 @@ impl InventoryTab {
 
 /// Which pane of the Items tab the cursor lives in. The Items tab splits
 /// horizontally into the inventory list (left) and an equipment sidebar
-/// (right); Tab cycles through `List → Sidebar → next inventory tab`.
+/// (right); left/right movement switches between panes while Tab stays
+/// reserved for top-level inventory tabs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ItemsFocus {
     List,
@@ -82,7 +83,7 @@ pub enum PendingIntent {
 
 /// Transient inventory state while the player is selecting a target for a
 /// Consumable. Same pattern as `SaveBrowser::pending_delete`.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PendingConsume {
     pub inventory_slot: usize,
     pub kind: ItemKind,

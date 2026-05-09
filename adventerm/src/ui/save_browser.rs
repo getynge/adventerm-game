@@ -8,10 +8,10 @@ use ratatui::widgets::{Clear, Paragraph};
 use adventerm_lib::SaveSlot;
 
 use crate::ui::accel::{CURSOR_BLANK, CURSOR_LEAD, CURSOR_TRAIL};
-use crate::ui::colors::{menu_block, MenuColors};
+use crate::ui::colors::{MenuColors, menu_block};
 use crate::ui::layout::{
-    popup_rect, PANEL_MIN_HEIGHT, PANEL_VERTICAL_PAD, POPUP_BORDER_PAD, POPUP_MIN_WIDTH,
-    SAVE_BROWSER_HORIZONTAL_PAD, STATUS_POPUP_HEIGHT,
+    PANEL_MIN_HEIGHT, PANEL_VERTICAL_PAD, POPUP_BORDER_PAD, POPUP_MIN_WIDTH,
+    SAVE_BROWSER_HORIZONTAL_PAD, STATUS_POPUP_HEIGHT, popup_rect,
 };
 
 const MINUTE: Duration = Duration::from_secs(60);
@@ -44,7 +44,11 @@ pub fn render(
         rows.push("+ New save...".to_string());
     }
     for slot in saves {
-        rows.push(format!("{}  ({})", slot.name, format_modified(slot.modified)));
+        rows.push(format!(
+            "{}  ({})",
+            slot.name,
+            format_modified(slot.modified)
+        ));
     }
     if rows.is_empty() {
         rows.push("(no saves yet)".to_string());

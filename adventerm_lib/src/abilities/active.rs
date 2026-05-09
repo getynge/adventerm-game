@@ -1,6 +1,6 @@
+use crate::abilities::AbilityKind;
 use crate::abilities::fireball::FireballAbility;
 use crate::abilities::impact::ImpactAbility;
-use crate::abilities::AbilityKind;
 use crate::stats::Stats;
 
 /// Damage and side-effect description returned by an active ability. The

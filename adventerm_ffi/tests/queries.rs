@@ -4,13 +4,13 @@
 use std::ptr;
 
 use adventerm_ffi::{
+    CAbilityKind, CAttribute, CEnemyKind, CEquipSlot, CItemKind, CStats, CTile, FfiError,
     ability_kind_name, attribute_name, enemy_kind_base_stats, enemy_kind_glyph, enemy_kind_name,
     equip_slot_name, ffi_last_error_message, game_effective_stats, game_free, game_fullbright,
     game_is_explored, game_is_visible, game_items_here, game_new_seeded, game_peek_item_here,
     game_pending_encounter, game_player_on_door, game_player_pos, game_set_fullbright,
     game_set_pending_encounter, game_take_pending_encounter, game_terrain_at, game_tile_at,
-    item_kind_glyph, item_kind_name, CAbilityKind, CAttribute, CEnemyKind, CEquipSlot, CItemKind,
-    CStats, CTile, FfiError,
+    item_kind_glyph, item_kind_name,
 };
 
 const SEED: u64 = 42;
@@ -185,7 +185,10 @@ fn enemy_glyph_and_stats_match_lib() {
     assert_eq!(g, EnemyKind::Slime.glyph() as u32);
 
     let mut stats = CStats::default();
-    assert_eq!(enemy_kind_base_stats(CEnemyKind::Slime as u8, &mut stats), 0);
+    assert_eq!(
+        enemy_kind_base_stats(CEnemyKind::Slime as u8, &mut stats),
+        0
+    );
     assert_eq!(stats, CStats::from(EnemyKind::Slime.base_stats()));
 }
 
@@ -209,14 +212,8 @@ fn name_lookups_return_null_for_unknown_kinds() {
 #[test]
 fn unknown_kind_in_glyph_returns_out_of_range() {
     let mut g = 0u32;
-    assert_eq!(
-        item_kind_glyph(99, &mut g),
-        FfiError::OutOfRange as i32
-    );
-    assert_eq!(
-        enemy_kind_glyph(99, &mut g),
-        FfiError::OutOfRange as i32
-    );
+    assert_eq!(item_kind_glyph(99, &mut g), FfiError::OutOfRange as i32);
+    assert_eq!(enemy_kind_glyph(99, &mut g), FfiError::OutOfRange as i32);
 }
 
 #[test]

@@ -12,11 +12,11 @@
 use std::ptr;
 
 use adventerm_ffi::{
-    battle_apply_enemy_turn, battle_apply_player_ability, battle_combatants, battle_enemy_cur_hp,
-    battle_free, battle_hp_snapshot, battle_is_resolved, battle_log_line_copy,
+    BattleHandle, CBattleResult, CBattleTurn, CCombatants, CHpSnapshot, FfiError, GameHandle,
+    SaveHandle, battle_apply_enemy_turn, battle_apply_player_ability, battle_combatants,
+    battle_enemy_cur_hp, battle_free, battle_hp_snapshot, battle_is_resolved, battle_log_line_copy,
     battle_log_line_count, battle_player_cur_hp, battle_result, battle_start, battle_turn,
-    game_free, game_new_seeded, save_from_bytes, save_to_game, BattleHandle, CBattleResult,
-    CBattleTurn, CCombatants, CHpSnapshot, FfiError, GameHandle, SaveHandle,
+    game_free, game_new_seeded, save_from_bytes, save_to_game,
 };
 use adventerm_lib::enemies::EnemyKind;
 use adventerm_lib::room::TileKind;
@@ -108,10 +108,7 @@ fn scripted_battle_resolves_to_known_outcome() {
                 battle_apply_player_ability(game, battle, 0),
                 FfiError::Ok as i32
             ),
-            1 => assert_eq!(
-                battle_apply_enemy_turn(game, battle),
-                FfiError::Ok as i32
-            ),
+            1 => assert_eq!(battle_apply_enemy_turn(game, battle), FfiError::Ok as i32),
             2 => {
                 resolved_via_loop = true;
                 break;
@@ -119,10 +116,16 @@ fn scripted_battle_resolves_to_known_outcome() {
             other => panic!("unknown CBattleTurn tag {other}"),
         }
     }
-    assert!(resolved_via_loop, "battle did not resolve in {TURN_CAP} turns");
+    assert!(
+        resolved_via_loop,
+        "battle did not resolve in {TURN_CAP} turns"
+    );
 
     let mut resolved = false;
-    assert_eq!(battle_is_resolved(battle, &mut resolved), FfiError::Ok as i32);
+    assert_eq!(
+        battle_is_resolved(battle, &mut resolved),
+        FfiError::Ok as i32
+    );
     assert!(resolved);
 
     let mut result_byte = 0u8;
@@ -143,7 +146,10 @@ fn scripted_battle_resolves_to_known_outcome() {
     assert_eq!(combatants.enemy_entity, enemy);
 
     let mut enemy_hp = 1u8;
-    assert_eq!(battle_enemy_cur_hp(battle, &mut enemy_hp), FfiError::Ok as i32);
+    assert_eq!(
+        battle_enemy_cur_hp(battle, &mut enemy_hp),
+        FfiError::Ok as i32
+    );
     assert_eq!(enemy_hp, 0);
 
     let mut player_hp = 0u8;
@@ -201,10 +207,7 @@ fn battle_apply_enemy_turn_on_player_turn_is_no_op() {
 
     let mut before = CHpSnapshot::default();
     battle_hp_snapshot(battle, &mut before);
-    assert_eq!(
-        battle_apply_enemy_turn(game, battle),
-        FfiError::Ok as i32
-    );
+    assert_eq!(battle_apply_enemy_turn(game, battle), FfiError::Ok as i32);
     let mut after = CHpSnapshot::default();
     battle_hp_snapshot(battle, &mut after);
     assert_eq!(before, after);

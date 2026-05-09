@@ -2,8 +2,8 @@ use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Layout};
 use ratatui::widgets::{Clear, Paragraph};
 
-use crate::ui::colors::{menu_block, MenuColors};
-use crate::ui::layout::{popup_rect, SEED_ENTRY_HEIGHT, SEED_ENTRY_WIDTH};
+use crate::ui::colors::{MenuColors, menu_block};
+use crate::ui::layout::{SEED_ENTRY_HEIGHT, SEED_ENTRY_WIDTH, popup_rect};
 
 pub fn render(frame: &mut Frame, buffer: &str, colors: &MenuColors) {
     let area = frame.area();

@@ -1,4 +1,4 @@
-use crate::abilities::{ability_behavior_for, AbilityCtx};
+use crate::abilities::{AbilityCtx, ability_behavior_for};
 use crate::battle::{Battle, BattleResult, BattleTurn, Combatants, HpSnapshot};
 use crate::ecs::EntityId;
 use crate::game::GameState;
@@ -157,9 +157,9 @@ mod tests {
             }
         }
         let spawn_pos = spawn_pos.expect("test seed had no extra floor tile");
-        let enemy = room
-            .enemies
-            .spawn_at(&mut room.world, spawn_pos, crate::enemies::EnemyKind::Slime);
+        let enemy =
+            room.enemies
+                .spawn_at(&mut room.world, spawn_pos, crate::enemies::EnemyKind::Slime);
 
         let mut battle = start_battle(&game, enemy).expect("start_battle");
         let starting_enemy_hp = battle.enemy_cur_hp();
@@ -187,9 +187,9 @@ mod tests {
             }
         }
         let spawn_pos = spawn_pos.expect("test seed had no extra floor tile");
-        let enemy = room
-            .enemies
-            .spawn_at(&mut room.world, spawn_pos, crate::enemies::EnemyKind::Slime);
+        let enemy =
+            room.enemies
+                .spawn_at(&mut room.world, spawn_pos, crate::enemies::EnemyKind::Slime);
 
         let baseline = {
             let mut g = game.clone();
@@ -199,9 +199,10 @@ mod tests {
             starting - b.enemy_cur_hp()
         };
 
-        game.player
-            .equipment_mut()
-            .equip(crate::items::EquipSlot::Arms, crate::items::ItemKind::Gauntlets);
+        game.player.equipment_mut().equip(
+            crate::items::EquipSlot::Arms,
+            crate::items::ItemKind::Gauntlets,
+        );
         let with_gauntlets = {
             let mut b = start_battle(&game, enemy).expect("equipped battle");
             let starting = b.enemy_cur_hp();
@@ -231,9 +232,9 @@ mod tests {
             }
         }
         let spawn_pos = spawn_pos.expect("test seed had no extra floor tile");
-        let enemy = room
-            .enemies
-            .spawn_at(&mut room.world, spawn_pos, crate::enemies::EnemyKind::Slime);
+        let enemy =
+            room.enemies
+                .spawn_at(&mut room.world, spawn_pos, crate::enemies::EnemyKind::Slime);
         let battle = start_battle(&game, enemy).expect("start_battle");
         assert_eq!(battle.log().len(), 1);
         assert!(battle.log()[0].contains("appears"));

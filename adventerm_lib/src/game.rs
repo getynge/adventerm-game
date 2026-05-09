@@ -102,7 +102,9 @@ impl GameState {
         };
         // Seed the per-game enemy RNG up front so behavior matches the
         // pre-ECS layout exactly. (Lazy rehydration covers the load path.)
-        let _ = state.player.enemy_rng_mut(state.dungeon.seed, ENEMY_RNG_SALT);
+        let _ = state
+            .player
+            .enemy_rng_mut(state.dungeon.seed, ENEMY_RNG_SALT);
         state.refresh_visibility();
         state
     }
@@ -179,8 +181,7 @@ impl GameState {
         }
         let i = room.idx(x, y);
         let cache = self.player.visibility();
-        cache.visible.get(i).copied().unwrap_or(false)
-            || cache.lit.get(i).copied().unwrap_or(false)
+        cache.visible.get(i).copied().unwrap_or(false) || cache.lit.get(i).copied().unwrap_or(false)
     }
 
     pub fn is_explored(&self, x: usize, y: usize) -> bool {
@@ -285,14 +286,7 @@ mod tests {
 
     fn defeat(state: &mut GameState, room: RoomId, entity: EntityId) {
         let player = state.player.entity();
-        dispatch(
-            state,
-            player,
-            DefeatEnemyAction {
-                room,
-                entity,
-            },
-        );
+        dispatch(state, player, DefeatEnemyAction { room, entity });
     }
 
     fn find_door_position(state: &GameState) -> (DoorId, (usize, usize)) {

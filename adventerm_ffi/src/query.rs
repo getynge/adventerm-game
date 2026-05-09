@@ -5,19 +5,17 @@
 //! an out-pointer for the glyph helpers) and never fail.
 
 use std::collections::HashMap;
-use std::ffi::{c_char, CString};
+use std::ffi::{CString, c_char};
 use std::sync::OnceLock;
 
+use adventerm_lib::ItemKind;
 use adventerm_lib::abilities::AbilityKind;
-use adventerm_lib::enemies::EnemyKind;
 use adventerm_lib::ecs::EntityId;
+use adventerm_lib::enemies::EnemyKind;
 use adventerm_lib::items::EquipSlot;
 use adventerm_lib::stats::Attribute;
-use adventerm_lib::ItemKind;
 
-use crate::enums::{
-    CAbilityKind, CAttribute, CEnemyKind, CEquipSlot, CItemKind, CTile,
-};
+use crate::enums::{CAbilityKind, CAttribute, CEnemyKind, CEquipSlot, CItemKind, CTile};
 use crate::error::FfiError;
 use crate::ffi_try;
 use crate::handle::GameHandle;
@@ -192,10 +190,7 @@ pub extern "C" fn game_peek_item_here(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn game_effective_stats(
-    handle: *const GameHandle,
-    out_stats: *mut CStats,
-) -> i32 {
+pub extern "C" fn game_effective_stats(handle: *const GameHandle, out_stats: *mut CStats) -> i32 {
     ffi_try!({
         let Some(h) = (unsafe { handle.as_ref() }) else {
             return FfiError::NullArgument as i32;
@@ -292,10 +287,7 @@ pub extern "C" fn game_take_pending_encounter(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn game_set_pending_encounter(
-    handle: *mut GameHandle,
-    entity: u32,
-) -> i32 {
+pub extern "C" fn game_set_pending_encounter(handle: *mut GameHandle, entity: u32) -> i32 {
     ffi_try!({
         let Some(h) = (unsafe { handle.as_mut() }) else {
             return FfiError::NullArgument as i32;

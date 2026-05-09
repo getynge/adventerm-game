@@ -58,12 +58,7 @@ pub struct DoorSubsystem {
 impl DoorSubsystem {
     /// Spawn a new door entity at `pos` owned by `owner`. The link must be
     /// set later via `link_pair` once both ends of the pair exist.
-    pub fn spawn(
-        &mut self,
-        world: &mut World,
-        owner: RoomId,
-        pos: (usize, usize),
-    ) -> DoorId {
+    pub fn spawn(&mut self, world: &mut World, owner: RoomId, pos: (usize, usize)) -> DoorId {
         let e = world.spawn();
         world.set_position(e, pos);
         self.owners.insert(e, DoorOwner(owner));

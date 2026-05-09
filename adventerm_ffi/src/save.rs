@@ -14,10 +14,10 @@ use std::ffi::c_char;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-use adventerm_lib::save::{self, SAVE_VERSION};
 use adventerm_lib::Save;
+use adventerm_lib::save::{self, SAVE_VERSION};
 
-use crate::error::{cstr_to_str, set_last_error, FfiError};
+use crate::error::{FfiError, cstr_to_str, set_last_error};
 use crate::ffi_try;
 use crate::handle::{GameHandle, SaveHandle, SaveListing};
 
@@ -92,7 +92,9 @@ pub extern "C" fn save_new_from_game(
         if out_save.is_null() {
             return FfiError::NullArgument as i32;
         }
-        unsafe { *out_save = std::ptr::null_mut(); }
+        unsafe {
+            *out_save = std::ptr::null_mut();
+        }
         let Some(h) = (unsafe { handle.as_ref() }) else {
             return FfiError::NullArgument as i32;
         };
@@ -132,7 +134,9 @@ pub extern "C" fn save_from_bytes(
         if out_save.is_null() {
             return FfiError::NullArgument as i32;
         }
-        unsafe { *out_save = std::ptr::null_mut(); }
+        unsafe {
+            *out_save = std::ptr::null_mut();
+        }
         if bytes.is_null() {
             return FfiError::NullArgument as i32;
         }
@@ -149,18 +153,19 @@ pub extern "C" fn save_from_bytes(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn save_to_game(
-    save: *const SaveHandle,
-    out_game: *mut *mut GameHandle,
-) -> i32 {
+pub extern "C" fn save_to_game(save: *const SaveHandle, out_game: *mut *mut GameHandle) -> i32 {
     ffi_try!({
         if out_game.is_null() {
             return FfiError::NullArgument as i32;
         }
-        unsafe { *out_game = std::ptr::null_mut(); }
+        unsafe {
+            *out_game = std::ptr::null_mut();
+        }
         let s = save_ref_or_null!(save);
         // Clone keeps the SaveHandle valid for further use after restoration.
-        let game = GameHandle { inner: s.inner.state.clone() };
+        let game = GameHandle {
+            inner: s.inner.state.clone(),
+        };
         unsafe {
             *out_game = Box::into_raw(Box::new(game));
         }
@@ -182,16 +187,15 @@ pub extern "C" fn save_name(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn save_version(
-    save: *const SaveHandle,
-    out_version: *mut u32,
-) -> i32 {
+pub extern "C" fn save_version(save: *const SaveHandle, out_version: *mut u32) -> i32 {
     ffi_try!({
         let s = save_ref_or_null!(save);
         if out_version.is_null() {
             return FfiError::NullArgument as i32;
         }
-        unsafe { *out_version = s.inner.version; }
+        unsafe {
+            *out_version = s.inner.version;
+        }
         FfiError::Ok as i32
     })
 }
@@ -199,22 +203,23 @@ pub extern "C" fn save_version(
 #[unsafe(no_mangle)]
 pub extern "C" fn save_free(save: *mut SaveHandle) {
     if !save.is_null() {
-        unsafe { drop(Box::from_raw(save)); }
+        unsafe {
+            drop(Box::from_raw(save));
+        }
     }
 }
 
 // ---- Filesystem helpers ---------------------------------------------------
 
 #[unsafe(no_mangle)]
-pub extern "C" fn save_list_open(
-    dir: *const c_char,
-    out_listing: *mut *mut SaveListing,
-) -> i32 {
+pub extern "C" fn save_list_open(dir: *const c_char, out_listing: *mut *mut SaveListing) -> i32 {
     ffi_try!({
         if out_listing.is_null() {
             return FfiError::NullArgument as i32;
         }
-        unsafe { *out_listing = std::ptr::null_mut(); }
+        unsafe {
+            *out_listing = std::ptr::null_mut();
+        }
         let dir_str = match cstr_to_str(dir) {
             Ok(s) => s,
             Err(e) => return e as i32,
@@ -231,16 +236,15 @@ pub extern "C" fn save_list_open(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn save_list_count(
-    listing: *const SaveListing,
-    out_count: *mut usize,
-) -> i32 {
+pub extern "C" fn save_list_count(listing: *const SaveListing, out_count: *mut usize) -> i32 {
     ffi_try!({
         let l = listing_ref_or_null!(listing);
         if out_count.is_null() {
             return FfiError::NullArgument as i32;
         }
-        unsafe { *out_count = l.inner.len(); }
+        unsafe {
+            *out_count = l.inner.len();
+        }
         FfiError::Ok as i32
     })
 }
@@ -299,7 +303,9 @@ pub extern "C" fn save_list_modified_unix(
             Ok(d) => d.as_secs() as i64,
             Err(e) => -(e.duration().as_secs() as i64),
         };
-        unsafe { *out_unix_seconds = seconds; }
+        unsafe {
+            *out_unix_seconds = seconds;
+        }
         FfiError::Ok as i32
     })
 }
@@ -307,7 +313,9 @@ pub extern "C" fn save_list_modified_unix(
 #[unsafe(no_mangle)]
 pub extern "C" fn save_list_free(listing: *mut SaveListing) {
     if !listing.is_null() {
-        unsafe { drop(Box::from_raw(listing)); }
+        unsafe {
+            drop(Box::from_raw(listing));
+        }
     }
 }
 

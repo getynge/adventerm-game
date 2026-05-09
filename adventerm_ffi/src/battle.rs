@@ -11,7 +11,7 @@ use adventerm_lib::battle::{apply_enemy_turn, apply_player_ability, start_battle
 use adventerm_lib::ecs::EntityId;
 
 use crate::enums::CBattleResult;
-use crate::error::{set_last_error, FfiError};
+use crate::error::{FfiError, set_last_error};
 use crate::ffi_try;
 use crate::handle::{BattleHandle, GameHandle};
 use crate::structs::{CBattleTurn, CCombatants, CHpSnapshot};
@@ -124,10 +124,7 @@ pub extern "C" fn battle_apply_enemy_turn(
 // ---- State queries --------------------------------------------------------
 
 #[unsafe(no_mangle)]
-pub extern "C" fn battle_turn(
-    battle: *const BattleHandle,
-    out_turn: *mut CBattleTurn,
-) -> i32 {
+pub extern "C" fn battle_turn(battle: *const BattleHandle, out_turn: *mut CBattleTurn) -> i32 {
     ffi_try!({
         let b = battle_ref_or_null!(battle);
         if out_turn.is_null() {
@@ -158,10 +155,7 @@ pub extern "C" fn battle_combatants(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn battle_player_cur_hp(
-    battle: *const BattleHandle,
-    out_hp: *mut u8,
-) -> i32 {
+pub extern "C" fn battle_player_cur_hp(battle: *const BattleHandle, out_hp: *mut u8) -> i32 {
     ffi_try!({
         let b = battle_ref_or_null!(battle);
         if out_hp.is_null() {
@@ -175,10 +169,7 @@ pub extern "C" fn battle_player_cur_hp(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn battle_enemy_cur_hp(
-    battle: *const BattleHandle,
-    out_hp: *mut u8,
-) -> i32 {
+pub extern "C" fn battle_enemy_cur_hp(battle: *const BattleHandle, out_hp: *mut u8) -> i32 {
     ffi_try!({
         let b = battle_ref_or_null!(battle);
         if out_hp.is_null() {
@@ -192,10 +183,7 @@ pub extern "C" fn battle_enemy_cur_hp(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn battle_hp_snapshot(
-    battle: *const BattleHandle,
-    out_hp: *mut CHpSnapshot,
-) -> i32 {
+pub extern "C" fn battle_hp_snapshot(battle: *const BattleHandle, out_hp: *mut CHpSnapshot) -> i32 {
     ffi_try!({
         let b = battle_ref_or_null!(battle);
         if out_hp.is_null() {
@@ -209,10 +197,7 @@ pub extern "C" fn battle_hp_snapshot(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn battle_is_resolved(
-    battle: *const BattleHandle,
-    out: *mut bool,
-) -> i32 {
+pub extern "C" fn battle_is_resolved(battle: *const BattleHandle, out: *mut bool) -> i32 {
     ffi_try!({
         let b = battle_ref_or_null!(battle);
         if out.is_null() {
@@ -256,10 +241,7 @@ pub extern "C" fn battle_result(
 // ---- Log access (Pattern C: count + line_copy) ----------------------------
 
 #[unsafe(no_mangle)]
-pub extern "C" fn battle_log_line_count(
-    battle: *const BattleHandle,
-    out_count: *mut usize,
-) -> i32 {
+pub extern "C" fn battle_log_line_count(battle: *const BattleHandle, out_count: *mut usize) -> i32 {
     ffi_try!({
         let b = battle_ref_or_null!(battle);
         if out_count.is_null() {

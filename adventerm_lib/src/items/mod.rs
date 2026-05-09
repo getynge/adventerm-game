@@ -13,8 +13,8 @@ pub mod torch;
 pub mod trousers;
 
 pub use behavior::{
-    behavior_for, equip_slot_of, ConsumeCtx, ConsumeIntent, ConsumeOutcome, ConsumeTarget,
-    EquipEffect, ItemBehavior, PlaceCtx, PlaceOutcome,
+    ConsumeCtx, ConsumeIntent, ConsumeOutcome, ConsumeTarget, EquipEffect, ItemBehavior, PlaceCtx,
+    PlaceOutcome, behavior_for, equip_slot_of,
 };
 pub use category::{EquipSlot, ItemCategory};
 pub use kind::ItemKind;

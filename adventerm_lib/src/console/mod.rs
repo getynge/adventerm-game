@@ -12,5 +12,5 @@ pub mod complete;
 pub mod parse;
 pub mod state;
 
-pub use command::{registry, DevCommand};
+pub use command::{DevCommand, registry};
 pub use state::ConsoleState;

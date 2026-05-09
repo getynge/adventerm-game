@@ -6,7 +6,7 @@
 //! [`LAST_ERROR`] and retrieved via [`ffi_last_error_message`].
 
 use std::cell::RefCell;
-use std::ffi::{c_char, CString};
+use std::ffi::{CString, c_char};
 
 /// Stable wire codes for FFI return values.
 ///
@@ -45,8 +45,7 @@ thread_local! {
 /// `set_last_error` is `pub(crate)` so other FFI modules (and the
 /// [`ffi_try!`] macro) can record context without exposing the storage.
 pub(crate) fn set_last_error(msg: impl Into<Vec<u8>>) {
-    let cstr =
-        CString::new(msg).unwrap_or_else(|_| CString::new("<contains nul>").unwrap());
+    let cstr = CString::new(msg).unwrap_or_else(|_| CString::new("<contains nul>").unwrap());
     LAST_ERROR.with(|cell| *cell.borrow_mut() = Some(cstr));
 }
 

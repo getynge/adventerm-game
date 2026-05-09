@@ -1,5 +1,5 @@
-use crate::console::command::{CompletionCtx, DevCommand, DevCtx};
 use crate::ItemKind;
+use crate::console::command::{CompletionCtx, DevCommand, DevCtx};
 
 /// `give <item-name>` — push an `ItemKind` into the player's inventory by
 /// the lowercase form of its display name. Multi-word names must be quoted
@@ -32,8 +32,8 @@ impl DevCommand for GiveCommand {
         let [name] = args else {
             return Err("usage: give <item-name>".to_string());
         };
-        let kind = ItemKind::from_display_name(name)
-            .ok_or_else(|| format!("unknown item {name:?}"))?;
+        let kind =
+            ItemKind::from_display_name(name).ok_or_else(|| format!("unknown item {name:?}"))?;
         let game = ctx
             .game
             .as_deref_mut()

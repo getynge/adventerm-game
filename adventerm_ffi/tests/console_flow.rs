@@ -10,11 +10,11 @@ use std::ffi::CString;
 use std::ptr;
 
 use adventerm_ffi::{
-    console_clear, console_command_count, console_command_help, console_command_name,
-    console_complete, console_completion_at, console_completion_count, console_cursor,
-    console_delete_back, console_free, console_history_count, console_history_line_copy,
-    console_input_get, console_input_set, console_insert_char, console_new, console_set_cursor,
-    console_submit, game_free, game_fullbright, game_new_seeded, ConsoleHandle, FfiError,
+    ConsoleHandle, FfiError, console_clear, console_command_count, console_command_help,
+    console_command_name, console_complete, console_completion_at, console_completion_count,
+    console_cursor, console_delete_back, console_free, console_history_count,
+    console_history_line_copy, console_input_get, console_input_set, console_insert_char,
+    console_new, console_set_cursor, console_submit, game_free, game_fullbright, game_new_seeded,
 };
 
 const SEED: u64 = 42;
@@ -36,7 +36,10 @@ fn submit_fullbright_flips_game_state() {
     let console = make_console();
 
     let cmd = CString::new("fullbright").unwrap();
-    assert_eq!(console_input_set(console, cmd.as_ptr()), FfiError::Ok as i32);
+    assert_eq!(
+        console_input_set(console, cmd.as_ptr()),
+        FfiError::Ok as i32
+    );
 
     let mut response = vec![0u8; RESPONSE_CAP];
     let mut needed = 0usize;
@@ -82,7 +85,10 @@ fn submit_unknown_command_sets_was_error() {
     assert_eq!(rc, FfiError::Ok as i32);
     assert!(was_error, "unknown commands set was_error=true");
 
-    let nul = response.iter().position(|&b| b == 0).expect("NUL terminator");
+    let nul = response
+        .iter()
+        .position(|&b| b == 0)
+        .expect("NUL terminator");
     let response = std::str::from_utf8(&response[..nul]).unwrap();
     assert!(
         response.contains("unknown command"),
@@ -191,10 +197,7 @@ fn input_editing_round_trips() {
 
     // Insert "ful" via per-character API.
     for c in "ful".chars() {
-        assert_eq!(
-            console_insert_char(console, c as u32),
-            FfiError::Ok as i32
-        );
+        assert_eq!(console_insert_char(console, c as u32), FfiError::Ok as i32);
     }
 
     // Read back the buffer using two-call discovery.

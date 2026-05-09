@@ -25,12 +25,14 @@ pub mod visibility;
 pub mod world;
 
 pub use abilities::{AbilityKind, PassiveKind};
-pub use action::{dispatch, Action};
+pub use action::{Action, dispatch};
 pub use actions::{
     ConsumeItemAction, DefeatEnemyAction, EquipItemAction, InteractAction, MoveAction,
     PickUpAction, PlaceItemAction, QuickMoveAction, UnequipItemAction,
 };
-pub use battle::{Battle, BattleLog, BattleResult, BattleSubsystem, BattleTurn, Combatants, HpSnapshot};
+pub use battle::{
+    Battle, BattleLog, BattleResult, BattleSubsystem, BattleTurn, Combatants, HpSnapshot,
+};
 pub use dungeon::{DoorSubsystem, DoorView, Dungeon, DungeonClock};
 pub use ecs::{EntityId, World};
 pub use enemies::EnemyKind;
@@ -42,12 +44,12 @@ pub use events::{
 };
 pub use game::{DoorEvent, GameState, MoveOutcome, PlaceOutcome};
 pub use items::{
-    category_of, consume_intent_of, ConsumeIntent, ConsumeOutcome, ConsumeTarget, EquipEffect,
-    EquipSlot, ItemCategory, ItemKind,
+    ConsumeIntent, ConsumeOutcome, ConsumeTarget, EquipEffect, EquipSlot, ItemCategory, ItemKind,
+    category_of, consume_intent_of,
 };
 pub use los::{LIGHT_RANGE, LOS_RANGE};
-pub use registry::{build_registry, registry, ActorKind, EventHandler, Registry};
+pub use registry::{ActorKind, EventHandler, Registry, build_registry, registry};
 pub use room::{DoorId, Room, RoomId, TileKind};
-pub use save::{Save, SaveError, SaveSlot, SAVE_VERSION};
+pub use save::{SAVE_VERSION, Save, SaveError, SaveSlot};
 pub use stats::{Attribute, Stats};
 pub use world::{Direction, Tile};

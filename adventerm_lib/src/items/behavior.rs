@@ -220,8 +220,14 @@ mod tests {
     fn each_kind_has_a_category() {
         // Compile-time enforced via `behavior_for`'s exhaustive match; this
         // just sanity-checks the values line up with what the docs claim.
-        assert_eq!(behavior_for(ItemKind::Torch).category(), ItemCategory::Placeable);
-        assert_eq!(behavior_for(ItemKind::Flare).category(), ItemCategory::Placeable);
+        assert_eq!(
+            behavior_for(ItemKind::Torch).category(),
+            ItemCategory::Placeable
+        );
+        assert_eq!(
+            behavior_for(ItemKind::Flare).category(),
+            ItemCategory::Placeable
+        );
         assert_eq!(
             behavior_for(ItemKind::Goggles).category(),
             ItemCategory::Equipment(EquipSlot::Head)

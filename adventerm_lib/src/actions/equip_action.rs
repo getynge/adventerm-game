@@ -3,7 +3,7 @@ use crate::ecs::EntityId;
 use crate::event::EventBus;
 use crate::events::ItemEquipped;
 use crate::game::GameState;
-use crate::items::{equip_slot_of, ItemKind};
+use crate::items::{ItemKind, equip_slot_of};
 
 /// "Equip the inventory item at `inventory_slot`." Reads the kind's
 /// equipment slot via `equip_slot_of`; if the kind is not equipment the

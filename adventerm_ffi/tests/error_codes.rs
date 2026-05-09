@@ -5,13 +5,13 @@
 use std::ptr;
 
 use adventerm_ffi::{
-    battle_free, battle_log_line_copy, battle_start, save_from_bytes, save_to_game, BattleHandle,
-    FfiError, GameHandle, SaveHandle,
+    BattleHandle, FfiError, GameHandle, SaveHandle, battle_free, battle_log_line_copy,
+    battle_start, save_from_bytes, save_to_game,
 };
+use adventerm_lib::GameState;
 use adventerm_lib::enemies::EnemyKind;
 use adventerm_lib::room::TileKind;
 use adventerm_lib::save::Save;
-use adventerm_lib::GameState;
 
 #[test]
 fn null_handle_returns_null_argument() {

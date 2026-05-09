@@ -14,11 +14,10 @@
 use std::ptr;
 
 use adventerm_ffi::{
-    game_action_consume, game_action_defeat_enemy, game_action_equip,
-    game_action_interact, game_action_move, game_action_pickup, game_action_place,
-    game_action_quick_move, game_action_unequip, game_free, game_new_seeded, CConsumeOutcome,
-    CConsumeTarget, CDirection, CDoorEvent, CEquipSlot, CItemKind, CMoveOutcome, CPlaceOutcome,
-    FfiError, GameHandle,
+    CConsumeOutcome, CConsumeTarget, CDirection, CDoorEvent, CEquipSlot, CItemKind, CMoveOutcome,
+    CPlaceOutcome, FfiError, GameHandle, game_action_consume, game_action_defeat_enemy,
+    game_action_equip, game_action_interact, game_action_move, game_action_pickup,
+    game_action_place, game_action_quick_move, game_action_unequip, game_free, game_new_seeded,
 };
 use adventerm_lib::action::dispatch;
 use adventerm_lib::actions::{
@@ -51,7 +50,13 @@ fn move_action_matches_direct_dispatch() {
 
     let mut game = lib_game(SEED);
     let actor = game.player.entity();
-    let direct = dispatch(&mut game, actor, MoveAction { direction: Direction::Up });
+    let direct = dispatch(
+        &mut game,
+        actor,
+        MoveAction {
+            direction: Direction::Up,
+        },
+    );
     assert_eq!(outcome, CMoveOutcome::from(direct));
 
     game_free(h);
@@ -69,7 +74,9 @@ fn quick_move_action_matches_direct_dispatch() {
     let direct = dispatch(
         &mut game,
         actor,
-        QuickMoveAction { direction: Direction::Down },
+        QuickMoveAction {
+            direction: Direction::Down,
+        },
     );
     assert_eq!(outcome, CMoveOutcome::from(direct));
 
@@ -172,7 +179,9 @@ fn unequip_action_matches_direct_dispatch() {
     let direct = dispatch(
         &mut game,
         actor,
-        UnequipItemAction { slot: EquipSlot::Torso },
+        UnequipItemAction {
+            slot: EquipSlot::Torso,
+        },
     );
     assert_eq!(success, direct.is_some());
 
@@ -255,10 +264,6 @@ fn move_action_invalid_direction_returns_out_of_range() {
 #[test]
 fn move_action_null_handle_returns_null_argument() {
     let mut outcome = CMoveOutcome::default();
-    let rc = game_action_move(
-        ptr::null_mut(),
-        CDirection::Up as u8,
-        &mut outcome,
-    );
+    let rc = game_action_move(ptr::null_mut(), CDirection::Up as u8, &mut outcome);
     assert_eq!(rc, FfiError::NullArgument as i32);
 }

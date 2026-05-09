@@ -77,9 +77,9 @@ impl Lighting {
         &'a self,
         world: &'a World,
     ) -> impl Iterator<Item = ((usize, usize), &'a LightSource)> + 'a {
-        self.sources.iter().filter_map(move |(e, s)| {
-            world.position_of(e).map(|p| (p, s))
-        })
+        self.sources
+            .iter()
+            .filter_map(move |(e, s)| world.position_of(e).map(|p| (p, s)))
     }
 
     /// Yield `(position, &FlareSource)` for every active flare in the room.
@@ -89,9 +89,9 @@ impl Lighting {
         &'a self,
         world: &'a World,
     ) -> impl Iterator<Item = ((usize, usize), &'a FlareSource)> + 'a {
-        self.flares.iter().filter_map(move |(e, s)| {
-            world.position_of(e).map(|p| (p, s))
-        })
+        self.flares
+            .iter()
+            .filter_map(move |(e, s)| world.position_of(e).map(|p| (p, s)))
     }
 
     fn find_source_at(&self, world: &World, pos: (usize, usize)) -> Option<EntityId> {

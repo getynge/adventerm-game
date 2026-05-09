@@ -5,7 +5,7 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
-use crate::ui::colors::{menu_block, SchemeColors};
+use crate::ui::colors::{SchemeColors, menu_block};
 
 const ACTIONS_PANEL_WIDTH: u16 = 20;
 const DIALOG_PANEL_HEIGHT: u16 = 5;

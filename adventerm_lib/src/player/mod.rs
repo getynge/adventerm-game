@@ -233,15 +233,15 @@ impl PlayerSubsystem {
     /// sources read `crate::los::LIGHT_RANGE` instead — they are
     /// intentionally unaffected by the player's vision gear.
     pub fn vision_radius(&self) -> usize {
-        let multiplier = self.equipment_or_default().aggregate_effect().vision_multiplier as usize;
+        let multiplier = self
+            .equipment_or_default()
+            .aggregate_effect()
+            .vision_multiplier as usize;
         LOS_RANGE.saturating_mul(multiplier.max(1))
     }
 
     fn equipment_or_default(&self) -> Equipment {
-        self.equipment
-            .get(self.entity)
-            .copied()
-            .unwrap_or_default()
+        self.equipment.get(self.entity).copied().unwrap_or_default()
     }
 
     pub fn visibility(&self) -> &VisibilityCache {
@@ -283,7 +283,8 @@ mod tests {
     fn effective_stats_apply_equipment_bonuses() {
         let mut p = PlayerSubsystem::new_at((0, 0));
         let base = *p.stats();
-        p.equipment_mut().equip(EquipSlot::Arms, ItemKind::Gauntlets);
+        p.equipment_mut()
+            .equip(EquipSlot::Arms, ItemKind::Gauntlets);
         p.equipment_mut().equip(EquipSlot::Torso, ItemKind::Shirt);
         let eff = p.effective_stats();
         assert_eq!(eff.attack, base.attack + 1);
@@ -308,7 +309,8 @@ mod tests {
         let mut s = *p.stats();
         s = Stats::new(s.health, 100, s.defense, s.speed, s.attribute);
         p.stats.insert(entity, s);
-        p.equipment_mut().equip(EquipSlot::Arms, ItemKind::Gauntlets);
+        p.equipment_mut()
+            .equip(EquipSlot::Arms, ItemKind::Gauntlets);
         assert_eq!(p.effective_stats().attack, 100);
     }
 }

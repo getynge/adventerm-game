@@ -4,14 +4,14 @@ use ratatui::style::Style;
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
-use crate::app::{options_row_label, App};
+use crate::app::{App, options_row_label};
 use crate::config::BoundAction;
 use crate::menu::{MenuState, OptionsRow};
 use crate::ui::accel;
-use crate::ui::colors::{menu_block, MenuColors};
+use crate::ui::colors::{MenuColors, menu_block};
 use crate::ui::layout::{
-    popup_rect, PANEL_HORIZONTAL_PAD, PANEL_MIN_HEIGHT, PANEL_MIN_WIDTH, PANEL_VERTICAL_PAD,
-    POPUP_BORDER_PAD, POPUP_MIN_WIDTH, STATUS_POPUP_HEIGHT,
+    PANEL_HORIZONTAL_PAD, PANEL_MIN_HEIGHT, PANEL_MIN_WIDTH, PANEL_VERTICAL_PAD, POPUP_BORDER_PAD,
+    POPUP_MIN_WIDTH, STATUS_POPUP_HEIGHT, popup_rect,
 };
 
 pub fn render(
@@ -105,12 +105,7 @@ pub fn render(
     }
 }
 
-fn render_capture_overlay(
-    frame: &mut Frame,
-    area: Rect,
-    action: BoundAction,
-    colors: &MenuColors,
-) {
+fn render_capture_overlay(frame: &mut Frame, area: Rect, action: BoundAction, colors: &MenuColors) {
     let prompt = format!("Press a key for '{}'   (Esc to cancel)", action.label());
     let width = (prompt.len() as u16 + POPUP_BORDER_PAD).min(area.width.max(POPUP_MIN_WIDTH));
     let popup = popup_rect(area, width, STATUS_POPUP_HEIGHT);

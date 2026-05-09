@@ -74,8 +74,7 @@ mod tests {
     fn spawn_enemy_picks_adjacent_floor() {
         let mut game = GameState::new_seeded(11);
         let (px, py) = game.player.position();
-        let entity =
-            spawn_enemy_near_player(&mut game, EnemyKind::Slime).expect("space available");
+        let entity = spawn_enemy_near_player(&mut game, EnemyKind::Slime).expect("space available");
         let room = game.current_room();
         let pos = room.world.position_of(entity).unwrap();
         let dx = (pos.0 as isize - px as isize).abs();

@@ -18,7 +18,7 @@ use adventerm_lib::dungeon::DoorView;
 use adventerm_lib::room::RoomId;
 
 use crate::enums::{CAbilityKind, CItemKind};
-use crate::error::{set_last_error, FfiError};
+use crate::error::{FfiError, set_last_error};
 use crate::ffi_try;
 use crate::handle::GameHandle;
 use crate::structs::{
@@ -43,12 +43,7 @@ macro_rules! handle_ref_or_null {
 /// Copy a slice of `Copy` discriminants into `out_buf` using the
 /// "two-call discovery" pattern: always populate `out_required` (so callers
 /// can re-allocate) before checking the buffer.
-fn copy_discriminants(
-    src: &[u8],
-    out_buf: *mut u8,
-    cap: usize,
-    out_required: *mut usize,
-) -> i32 {
+fn copy_discriminants(src: &[u8], out_buf: *mut u8, cap: usize, out_required: *mut usize) -> i32 {
     if !out_required.is_null() {
         unsafe {
             *out_required = src.len();
@@ -67,10 +62,7 @@ fn copy_discriminants(
 
 /// Resolve a `room: u32` parameter to a `&Room`, or return [`OutOfRange`]
 /// after recording the bad index.
-fn room_or_out_of_range<'a>(
-    h: &'a GameHandle,
-    room: u32,
-) -> Result<&'a adventerm_lib::Room, i32> {
+fn room_or_out_of_range<'a>(h: &'a GameHandle, room: u32) -> Result<&'a adventerm_lib::Room, i32> {
     let count = h.inner.dungeon.rooms.len();
     let idx = room as usize;
     if idx >= count {
@@ -94,10 +86,7 @@ fn check_index(idx: usize, len: usize) -> Result<(), i32> {
 // ---- Pattern A — copy-element slices --------------------------------------
 
 #[unsafe(no_mangle)]
-pub extern "C" fn game_inventory_len(
-    handle: *const GameHandle,
-    out_len: *mut usize,
-) -> i32 {
+pub extern "C" fn game_inventory_len(handle: *const GameHandle, out_len: *mut usize) -> i32 {
     ffi_try!({
         let h = handle_ref_or_null!(handle);
         if out_len.is_null() {
@@ -268,10 +257,7 @@ fn current_room_doors(h: &GameHandle) -> Vec<DoorView> {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn room_doors_count(
-    handle: *const GameHandle,
-    out_count: *mut usize,
-) -> i32 {
+pub extern "C" fn room_doors_count(handle: *const GameHandle, out_count: *mut usize) -> i32 {
     ffi_try!({
         let h = handle_ref_or_null!(handle);
         if out_count.is_null() {
@@ -360,10 +346,7 @@ pub extern "C" fn room_enemy_at(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn room_lights_count(
-    handle: *const GameHandle,
-    out_count: *mut usize,
-) -> i32 {
+pub extern "C" fn room_lights_count(handle: *const GameHandle, out_count: *mut usize) -> i32 {
     ffi_try!({
         let h = handle_ref_or_null!(handle);
         if out_count.is_null() {
@@ -406,10 +389,7 @@ pub extern "C" fn room_light_at(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn room_flares_count(
-    handle: *const GameHandle,
-    out_count: *mut usize,
-) -> i32 {
+pub extern "C" fn room_flares_count(handle: *const GameHandle, out_count: *mut usize) -> i32 {
     ffi_try!({
         let h = handle_ref_or_null!(handle);
         if out_count.is_null() {
@@ -502,10 +482,7 @@ pub extern "C" fn room_item_at(
 // ---- Room introspection ---------------------------------------------------
 
 #[unsafe(no_mangle)]
-pub extern "C" fn game_current_room(
-    handle: *const GameHandle,
-    out_room: *mut u32,
-) -> i32 {
+pub extern "C" fn game_current_room(handle: *const GameHandle, out_room: *mut u32) -> i32 {
     ffi_try!({
         let h = handle_ref_or_null!(handle);
         if out_room.is_null() {

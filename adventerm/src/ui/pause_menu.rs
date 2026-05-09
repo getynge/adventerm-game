@@ -5,8 +5,8 @@ use ratatui::widgets::{Clear, Paragraph};
 
 use crate::menu::PauseMenuOption;
 use crate::ui::accel;
-use crate::ui::colors::{menu_block, MenuColors};
-use crate::ui::layout::{popup_rect, PAUSE_MENU_VERTICAL_PAD, PAUSE_MENU_WIDTH};
+use crate::ui::colors::{MenuColors, menu_block};
+use crate::ui::layout::{PAUSE_MENU_VERTICAL_PAD, PAUSE_MENU_WIDTH, popup_rect};
 
 pub fn render(frame: &mut Frame, cursor: usize, colors: &MenuColors) {
     let area = frame.area();

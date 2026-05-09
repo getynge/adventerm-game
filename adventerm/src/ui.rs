@@ -39,7 +39,13 @@ pub fn render(frame: &mut Frame, app: &App) {
             );
         }
         Screen::LoadGame { browser, status } => {
-            render_main_menu_underlay(frame, app, MainMenuOption::LoadGame, status.text(), &scheme_colors.menu);
+            render_main_menu_underlay(
+                frame,
+                app,
+                MainMenuOption::LoadGame,
+                status.text(),
+                &scheme_colors.menu,
+            );
             save_browser::render(
                 frame,
                 &browser.saves,
@@ -121,7 +127,13 @@ pub fn render(frame: &mut Frame, app: &App) {
             seed_entry::render(frame, buffer, &scheme_colors.menu);
         }
         Screen::Options { menu, status } => {
-            render_main_menu_underlay(frame, app, MainMenuOption::Options, None, &scheme_colors.menu);
+            render_main_menu_underlay(
+                frame,
+                app,
+                MainMenuOption::Options,
+                None,
+                &scheme_colors.menu,
+            );
             options::render(frame, app, menu, status.text(), None, &scheme_colors.menu);
         }
         Screen::RebindCapture {
@@ -129,7 +141,13 @@ pub fn render(frame: &mut Frame, app: &App) {
             status: _,
             target,
         } => {
-            render_main_menu_underlay(frame, app, MainMenuOption::Options, None, &scheme_colors.menu);
+            render_main_menu_underlay(
+                frame,
+                app,
+                MainMenuOption::Options,
+                None,
+                &scheme_colors.menu,
+            );
             options::render(frame, app, menu, None, Some(*target), &scheme_colors.menu);
         }
         Screen::OptionsAdvanced { menu, status: _ } => {
@@ -142,7 +160,10 @@ pub fn render(frame: &mut Frame, app: &App) {
             );
             options_advanced::render(frame, app, menu, &scheme_colors.menu);
         }
-        Screen::DeveloperConsole { underlying, console: state } => {
+        Screen::DeveloperConsole {
+            underlying,
+            console: state,
+        } => {
             render_underlying(frame, app, underlying, &scheme_colors);
             console::render(frame, state, &scheme_colors.menu);
         }
@@ -154,12 +175,7 @@ pub fn render(frame: &mut Frame, app: &App) {
 /// using the same dispatch as the top-level renderer. Mirrors what each
 /// branch above does — kept narrow so the dev console doesn't accidentally
 /// drift from the standalone rendering of any given screen.
-fn render_underlying(
-    frame: &mut Frame,
-    app: &App,
-    screen: &Screen,
-    scheme_colors: &SchemeColors,
-) {
+fn render_underlying(frame: &mut Frame, app: &App, screen: &Screen, scheme_colors: &SchemeColors) {
     match screen {
         Screen::MainMenu { menu, status } => {
             main_menu::render(
@@ -259,7 +275,13 @@ fn render_underlying(
             seed_entry::render(frame, buffer, &scheme_colors.menu);
         }
         Screen::Options { menu, status } => {
-            render_main_menu_underlay(frame, app, MainMenuOption::Options, None, &scheme_colors.menu);
+            render_main_menu_underlay(
+                frame,
+                app,
+                MainMenuOption::Options,
+                None,
+                &scheme_colors.menu,
+            );
             options::render(frame, app, menu, status.text(), None, &scheme_colors.menu);
         }
         Screen::OptionsAdvanced { menu, status: _ } => {
@@ -277,7 +299,13 @@ fn render_underlying(
             status: _,
             target,
         } => {
-            render_main_menu_underlay(frame, app, MainMenuOption::Options, None, &scheme_colors.menu);
+            render_main_menu_underlay(
+                frame,
+                app,
+                MainMenuOption::Options,
+                None,
+                &scheme_colors.menu,
+            );
             options::render(frame, app, menu, None, Some(*target), &scheme_colors.menu);
         }
         // Console-on-console: render the wrapped chain. Recursion bottoms out

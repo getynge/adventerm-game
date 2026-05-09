@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::ecs::{ComponentStore, EntityId, World};
 use crate::room::RoomId;
 
-pub use engine::{apply_enemy_turn, apply_player_ability, start_battle, BattleError};
+pub use engine::{BattleError, apply_enemy_turn, apply_player_ability, start_battle};
 
 /// How many lines of battle log to keep visible. The engine appends to the
 /// front and trims the back so the renderer can always read `log[0]` for the

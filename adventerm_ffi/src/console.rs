@@ -17,11 +17,11 @@
 
 use std::ffi::c_char;
 
-use adventerm_lib::console::command::{find as find_command, registry, DevCtx};
-use adventerm_lib::console::parse::tokenize;
 use adventerm_lib::console::ConsoleState;
+use adventerm_lib::console::command::{DevCtx, find as find_command, registry};
+use adventerm_lib::console::parse::tokenize;
 
-use crate::error::{cstr_to_str, set_last_error, FfiError};
+use crate::error::{FfiError, cstr_to_str, set_last_error};
 use crate::ffi_try;
 use crate::handle::{ConsoleHandle, GameHandle};
 
@@ -57,12 +57,7 @@ macro_rules! console_mut_or_null {
 /// Two-call discovery copy of a UTF-8 string into a caller buffer. Writes
 /// the required size (string bytes + trailing NUL) into `out_required`
 /// before checking the buffer capacity.
-fn copy_str_with_nul(
-    text: &str,
-    buf: *mut u8,
-    cap: usize,
-    out_required: *mut usize,
-) -> i32 {
+fn copy_str_with_nul(text: &str, buf: *mut u8, cap: usize, out_required: *mut usize) -> i32 {
     let bytes = text.as_bytes();
     let needed = bytes.len() + 1;
     if !out_required.is_null() {
@@ -126,10 +121,7 @@ pub extern "C" fn console_input_get(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn console_input_set(
-    console: *mut ConsoleHandle,
-    text: *const c_char,
-) -> i32 {
+pub extern "C" fn console_input_set(console: *mut ConsoleHandle, text: *const c_char) -> i32 {
     ffi_try!({
         let h = console_mut_or_null!(console);
         let s = match cstr_to_str(text) {
@@ -148,10 +140,7 @@ pub extern "C" fn console_input_set(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn console_cursor(
-    console: *const ConsoleHandle,
-    out_pos: *mut usize,
-) -> i32 {
+pub extern "C" fn console_cursor(console: *const ConsoleHandle, out_pos: *mut usize) -> i32 {
     ffi_try!({
         let h = console_ref_or_null!(console);
         if out_pos.is_null() {
@@ -167,10 +156,7 @@ pub extern "C" fn console_cursor(
 /// Set the caret to `pos`. Out-of-range or non-char-boundary positions
 /// return [`FfiError::OutOfRange`] with detail in `LAST_ERROR`.
 #[unsafe(no_mangle)]
-pub extern "C" fn console_set_cursor(
-    console: *mut ConsoleHandle,
-    pos: usize,
-) -> i32 {
+pub extern "C" fn console_set_cursor(console: *mut ConsoleHandle, pos: usize) -> i32 {
     ffi_try!({
         let h = console_mut_or_null!(console);
         if pos > h.inner.input.len() {
@@ -192,10 +178,7 @@ pub extern "C" fn console_set_cursor(
 /// Insert one Unicode scalar at the caret. Invalid scalar values (surrogates,
 /// out-of-range) return [`FfiError::OutOfRange`].
 #[unsafe(no_mangle)]
-pub extern "C" fn console_insert_char(
-    console: *mut ConsoleHandle,
-    codepoint: u32,
-) -> i32 {
+pub extern "C" fn console_insert_char(console: *mut ConsoleHandle, codepoint: u32) -> i32 {
     ffi_try!({
         let h = console_mut_or_null!(console);
         let Some(c) = char::from_u32(codepoint) else {
@@ -351,10 +334,7 @@ pub extern "C" fn console_history_line_copy(
 /// be null — completion candidates that consult game state simply receive
 /// `None` for the [`CompletionCtx`], matching the lib's contract.
 #[unsafe(no_mangle)]
-pub extern "C" fn console_complete(
-    console: *mut ConsoleHandle,
-    game: *const GameHandle,
-) -> i32 {
+pub extern "C" fn console_complete(console: *mut ConsoleHandle, game: *const GameHandle) -> i32 {
     ffi_try!({
         let h = console_mut_or_null!(console);
         let game_ref = unsafe { game.as_ref() }.map(|g| &g.inner);
